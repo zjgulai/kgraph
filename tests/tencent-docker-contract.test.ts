@@ -78,6 +78,13 @@ test('edge Nginx fails closed by Host and proxies deep app health through Docker
   assert.match(edge, /proxy_pass \$app_upstream/);
 });
 
+test('shared Nginx block uses current HTTP/2 syntax', () => {
+  const shared = read('deploy/tencent/shared-nginx-kgraph.block.conf');
+  assert.match(shared, /listen 443 ssl;/);
+  assert.match(shared, /http2 on;/);
+  assert.doesNotMatch(shared, /listen 443 ssl http2;/);
+});
+
 test('build script assembles an external allowlist context and requires a digest', () => {
   const script = read('scripts/tencent/build-linux-image.sh');
   assert.match(script, /NODE_IMAGE.*@sha256:/s);
