@@ -15,7 +15,7 @@ production_status: unchanged
 
 当前只完成本地候选验证、域名检查和远端只读服务器熟悉；没有创建 Docker objects、目录或证书，没有修改 Nginx/DNS/防火墙，也没有 reload/restart，`production unchanged`。
 
-最新已封板的本地候选为 `20260711T082538Z-7690e781aa99`。Linux amd64 image、完整 Compose topology、readonly smoke、SBOM/CVE 与 checksum 已通过；本机验收证据不随公开源码发布。这只把部署门推进到 L2 candidate，不代表云端已部署。
+最新已封板的本地候选为 `20260711T120409Z-0eafc7e4f71f`，对应 Git commit `0eafc7e4f71f98e62fc2b16b89f5df9c543d672c`。Linux amd64 image、完整 Compose topology、readonly smoke、SBOM/CVE 与 checksum 已通过；本机验收证据不随公开源码发布。这只把部署门推进到 L2 candidate，不代表云端已部署。
 
 ## 当前部署决策
 
