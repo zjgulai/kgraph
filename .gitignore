@@ -1,0 +1,31 @@
+node_modules/
+.next/
+data/
+out/
+logs/
+tmp/
+.codegraph/
+.playwright-cli/
+.kiro/
+.omc/
+.superpowers/
+
+# Local operational evidence and historical review material
+CODEX-DEPLOY-HANDOFF.md
+AUDIT.md
+AUDIT-FINAL.md
+archive/
+
+# Local secrets and private key material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Generated local metadata
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store

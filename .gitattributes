@@ -1,0 +1,2 @@
+# Canonical Markdown snapshots intentionally retain trailing spaces used for hard breaks.
+documents/*.md whitespace=-trailing-space

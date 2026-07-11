@@ -1,0 +1,50 @@
+ARG NODE_IMAGE=node:22-bookworm-slim@sha256:53ada149d435c38b14476cb57e4a7da73c15595aba79bd6971b547ceb6d018bf
+ARG RUNTIME_IMAGE=gcr.io/distroless/nodejs22-debian13@sha256:773a62fbe24a3f8c8b24b16fd59154627f8b406737bc906f83bf1732bc8907dd
+
+FROM ${NODE_IMAGE} AS builder
+WORKDIR /workspace/doccanvas
+
+COPY doccanvas/package.json doccanvas/package-lock.json ./
+RUN npm ci --include=dev --no-audit --no-fund
+
+COPY doccanvas/tsconfig.json doccanvas/next.config.ts doccanvas/postcss.config.mjs ./
+COPY doccanvas/ecosystem.config.cjs doccanvas/nginx.conf doccanvas/.dockerignore doccanvas/Dockerfile ./
+COPY doccanvas/app ./app
+COPY doccanvas/components ./components
+COPY doccanvas/lib ./lib
+COPY doccanvas/public ./public
+COPY doccanvas/documents ./documents
+COPY doccanvas/scripts ./scripts
+COPY doccanvas/tests ./tests
+COPY doccanvas/deploy ./deploy
+
+RUN npm run verify:local
+
+FROM ${RUNTIME_IMAGE} AS runtime
+ARG SOURCE_SHA
+ARG RELEASE_ID
+ARG BUILD_TIMESTAMP
+LABEL org.opencontainers.image.title="DocCanvas" \
+      org.opencontainers.image.vendor="ai_software" \
+      org.opencontainers.image.revision="${SOURCE_SHA}" \
+      org.opencontainers.image.version="${RELEASE_ID}" \
+      org.opencontainers.image.created="${BUILD_TIMESTAMP}"
+
+ENV NODE_ENV=production \
+    DOCUMENT_PATH_MODE=prod \
+    DOCCANVAS_ROOT=/data \
+    DOCCANVAS_WRITE_MODE=readonly \
+    PORT=3200 \
+    HOSTNAME=0.0.0.0
+
+WORKDIR /app
+COPY --from=builder --chown=10001:10001 /workspace/doccanvas/.next/standalone ./
+COPY --from=builder --chown=10001:10001 /workspace/doccanvas/.next/static ./.next/static
+COPY --from=builder --chown=10001:10001 /workspace/doccanvas/public ./public
+COPY --from=builder --chown=10001:10001 /workspace/doccanvas/.next/standalone/.next/BUILD_ID ./public/__doccanvas_build_id.txt
+
+USER 10001:10001
+EXPOSE 3200
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=4 \
+  CMD ["/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3200/api/health').then(async r=>{const b=await r.json();if(!r.ok||b?.status!=='ok'||b?.writePolicy?.mode!=='readonly')process.exit(1)}).catch(()=>process.exit(1))"]
+CMD ["server.js"]

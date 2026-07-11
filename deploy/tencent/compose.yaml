@@ -1,0 +1,98 @@
+name: doccanvas-kgraph
+
+services:
+  app:
+    image: ${DOCCANVAS_IMAGE:?set DOCCANVAS_IMAGE to an immutable release tag}
+    platform: linux/amd64
+    user: "10001:10001"
+    environment:
+      NODE_ENV: production
+      DOCUMENT_PATH_MODE: prod
+      DOCCANVAS_ROOT: /data
+      DOCCANVAS_WRITE_MODE: readonly
+      PORT: "3200"
+      HOSTNAME: 0.0.0.0
+    volumes:
+      - type: bind
+        source: ${DOCCANVAS_DATA_ROOT:?set DOCCANVAS_DATA_ROOT}
+        target: /data
+        read_only: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,uid=10001,gid=10001,mode=1770
+      - /app/.next/cache:rw,noexec,nosuid,nodev,size=32m,uid=10001,gid=10001,mode=0770
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 128
+    restart: unless-stopped
+    stop_grace_period: 20s
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3200/api/health').then(async r=>{const b=await r.json();if(!r.ok||b?.writePolicy?.mode!=='readonly')process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 4
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  edge:
+    image: nginx@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    platform: linux/amd64
+    user: "101:101"
+    entrypoint: ["nginx"]
+    command: ["-c", "/etc/doccanvas-edge/nginx.conf", "-g", "daemon off;"]
+    configs:
+      - source: edge_nginx
+        target: /etc/doccanvas-edge/nginx.conf
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=101,gid=101,mode=1770
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,size=16m,uid=101,gid=101,mode=0770
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 32
+    restart: unless-stopped
+    stop_grace_period: 10s
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      internal: {}
+      proxy:
+        aliases:
+          - doccanvas-kgraph-edge
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --header='Host: kgraph.lute-tlz-dddd.top' http://127.0.0.1:8080/_edge_health | grep -q '\"mode\":\"readonly\"'"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 4
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+configs:
+  edge_nginx:
+    file: ./edge.nginx.conf
+
+networks:
+  internal:
+    internal: true
+  proxy:
+    external: true
+    name: lighthouse_ai_video_net

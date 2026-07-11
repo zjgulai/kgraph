@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --canvas-bg: #0a0a0f;
+  --canvas-surface: #111118;
+  --canvas-border: #1f1f2e;
+  --brand-indigo: #6366f1;
+  --brand-cyan: #06b6d4;
+  --brand-amber: #f59e0b;
+  --brand-emerald: #10b981;
+  --brand-violet: #8b5cf6;
+  --brand-rose: #f06292;
+}
+
+body {
+  background: var(--canvas-bg);
+  color: #f4f4f5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── React Flow overrides ── */
+.react-flow__node {
+  font-family: inherit;
+}
+.react-flow__attribution { display: none !important; }
+.react-flow__minimap {
+  border-radius: 10px !important;
+  overflow: hidden !important;
+  border: 1px solid var(--canvas-border) !important;
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.1) !important;
+}
+.react-flow__controls {
+  border-radius: 10px !important;
+  overflow: hidden !important;
+  border: 1px solid var(--canvas-border) !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4) !important;
+}
+.react-flow__controls-button {
+  background: var(--canvas-surface) !important;
+  border-bottom: 1px solid var(--canvas-border) !important;
+  fill: #a1a1aa !important;
+  transition: all 0.15s !important;
+}
+.react-flow__controls-button:hover {
+  background: var(--canvas-border) !important;
+  fill: #d4d4d8 !important;
+}
+.react-flow__background {
+  opacity: 0.35 !important; /* subtle grid — depth without distraction */
+}
+
+/* ── Edge glow on main trunk ── */
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 4 6;
+  animation: edgeFlow 0.6s linear infinite;
+}
+@keyframes edgeFlow {
+  to { stroke-dashoffset: -10; }
+}
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 3px !important;
+  filter: drop-shadow(0 0 6px rgba(99,102,241,0.4));
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 3px !important;
+  filter: drop-shadow(0 0 8px rgba(99,102,241,0.6));
+}
+
+/* ── Node selection glow ── */
+.react-flow__node.selected > div {
+  box-shadow: 0 0 0 2px var(--brand-indigo), 0 0 24px rgba(99,102,241,0.3), 0 8px 32px rgba(0,0,0,0.5) !important;
+  transform: scale(1.03);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Smooth node hide/reveal (track toggle) ── */
+.react-flow__node {
+  transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1), transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.react-flow__node[hidden] {
+  opacity: 0;
+  transform: scale(0.95);
+  pointer-events: none;
+}
+.react-flow__edge {
+  transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.react-flow__edge[hidden] {
+  opacity: 0;
+}
+
+/* ── Track edge labels ── */
+.react-flow__edge-label {
+  font-family: inherit;
+}
+
+/* ── Animations ── */
+@keyframes slide-in-from-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes slide-in-from-bottom { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fade-in-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes zoom-in-95 { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+@keyframes pulse-glow { 0%,100% { box-shadow: 0 0 0 0 rgba(99,102,241,0.4); } 50% { box-shadow: 0 0 0 8px rgba(99,102,241,0); } }
+.animate-in.slide-in-from-right { animation: slide-in-from-right 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
+.animate-in.slide-in-from-bottom { animation: slide-in-from-bottom 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
+.animate-in.zoom-in-95 { animation: zoom-in-95 0.15s cubic-bezier(0.4, 0, 0.2, 1); }
+.animate-in.fade-in { animation: fade-in 0.3s ease-out; }
+.animate-in.fade-in-up { animation: fade-in-up 0.5s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.manifest-card { animation: fade-in-up 0.5s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.manifest-card:nth-child(1) { animation-delay: 0.05s; }
+.manifest-card:nth-child(2) { animation-delay: 0.15s; }
+.manifest-card:nth-child(3) { animation-delay: 0.25s; }
+.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+
+/* ── Scrollbar (branded) ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--canvas-bg); }
+::-webkit-scrollbar-thumb { background: #27273a; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3f3f5a; }
+
+/* ── Selection (brand-colored) ── */
+::selection { background: rgba(99,102,241,0.3); color: #f4f4f5; }
+
+/* ── Focus ring branding ── */
+input:focus-visible, textarea:focus-visible, button:focus-visible {
+  outline: 2px solid var(--brand-indigo);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+/* Suppress focus ring on mouse clicks */
+:focus:not(:focus-visible) { outline: none; }
+
+/* ── Content fade-out for long text ── */
+.content-fade-bottom {
+  position: relative;
+}
+.content-fade-bottom::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 40px;
+  background: linear-gradient(transparent, var(--canvas-bg) 90%);
+  pointer-events: none;
+}
