@@ -35,7 +35,7 @@ SSH 固定使用 isolated `known_hosts`、`StrictHostKeyChecking=yes`、`Identit
 
 - 不安装或重启 Docker daemon，不改 `daemon.json`，不执行任何 prune。
 - 所有 Compose 命令显式带 `-p doccanvas-kgraph`、release 文件和 env 文件。
-- app 只加入 `internal: true` network；edge 是唯一加入现有 proxy network 的 endpoint。
+- app 只加入 `internal: true` network，并使用项目唯一 internal alias；edge 是唯一加入现有 proxy network 的 endpoint，禁止用共享网络常见的 `app` / `web` / `api` 名称作为 upstream。
 - 不声明 `ports:`、host network、privileged、Docker socket、host PID/IPC 或 named volume。
 - app/edge 使用 non-root、read-only rootfs、`cap_drop: ALL`、no-new-privileges、资源/PID/log 上限。
 - data 由 host root 管理并以 `/data:ro` 挂载；首发固定 `DOCCANVAS_WRITE_MODE=readonly`。

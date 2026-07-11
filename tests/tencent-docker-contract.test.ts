@@ -63,6 +63,7 @@ test('Compose isolates app and edge without host ports or privilege', () => {
   assert.match(compose, /internal:\s*true/);
   assert.match(compose, /external:\s*true/);
   assert.match(compose, /doccanvas-kgraph-edge/);
+  assert.match(compose, /doccanvas-kgraph-app-internal/);
 });
 
 test('edge Nginx fails closed by Host and proxies deep app health through Docker DNS', () => {
@@ -72,6 +73,8 @@ test('edge Nginx fails closed by Host and proxies deep app health through Docker
   assert.match(edge, /return 444/);
   assert.match(edge, /location = \/_edge_health/);
   assert.match(edge, /\/api\/health/);
+  assert.match(edge, /http:\/\/doccanvas-kgraph-app-internal:3200/);
+  assert.doesNotMatch(edge, /http:\/\/app:3200/);
   assert.match(edge, /proxy_pass \$app_upstream/);
 });
 

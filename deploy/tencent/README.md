@@ -17,6 +17,6 @@ updated: 2026-07-11
 3. 运行 `scripts/tencent/verify-linux-image.sh <image-tag>`。
 4. 使用 `docker compose -p doccanvas-kgraph -f deploy/tencent/compose.yaml --env-file <release.env> config --quiet` 验证最终变量。
 
-生产 Compose 不发布 host port；app 只在 internal network，edge 是唯一加入 `lighthouse_ai_video_net` 的 endpoint。`release.env.example` 不含 token，首发固定 readonly。
+生产 Compose 不发布 host port；app 只在 internal network，并使用项目唯一 alias `doccanvas-kgraph-app-internal`，避免 edge 在共享网络误解析其他项目的通用 `app` alias。edge 是唯一加入 `lighthouse_ai_video_net` 的 endpoint。`release.env.example` 不含 token，首发固定 readonly。
 
 任何远端动作前必须完成 owner 授权、SSH fingerprint 可信核对、Mode A/B 选择、Certbot/变更窗口/回滚 owner 确认。`production unchanged`。
