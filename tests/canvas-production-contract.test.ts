@@ -40,7 +40,15 @@ test('server restore accepts any non-empty position set', () => {
   assert.doesNotMatch(viewer, /Object\.keys\(state\.nodePositions\)\.length > 5/);
 });
 
-test('PNG export enforces a rendered pixel budget including pixel ratio', () => {
-  assert.match(viewer, /imageWidth \* imageHeight \* PNG_PIXEL_RATIO \* PNG_PIXEL_RATIO/);
-  assert.match(viewer, /renderedPixels > MAX_PNG_PIXELS/);
+test('PNG export uses the highest safe pixel ratio selected by the shared budget helper', () => {
+  assert.match(viewer, /selectPngPixelRatio\(imageWidth, imageHeight\)/);
+  assert.match(viewer, /pixelRatio,/);
+  assert.doesNotMatch(viewer, /pixelRatio:\s*PNG_PIXEL_RATIO/);
+
+  const selectionIndex = viewer.indexOf('selectPngPixelRatio(imageWidth, imageHeight)');
+  const nullGuardIndex = viewer.indexOf('if (pixelRatio === null)', selectionIndex);
+  const renderIndex = viewer.indexOf('await toPng(viewportEl', selectionIndex);
+  assert.ok(selectionIndex >= 0);
+  assert.ok(nullGuardIndex > selectionIndex);
+  assert.ok(renderIndex > nullGuardIndex);
 });

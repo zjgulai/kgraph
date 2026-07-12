@@ -32,6 +32,7 @@ import {
   removeDocNodeFromView,
   updateDocNodeAfterSave,
 } from '@/lib/canvas/doc-node-state';
+import { selectPngPixelRatio } from '@/lib/canvas/png-export';
 import { CardNode } from './CardNode';
 import { NodeDetailSheet } from './NodeDetailSheet';
 import { TrackToggle } from './TrackToggle';
@@ -47,9 +48,6 @@ interface Props {
   document: DocCanvasType;
   writePolicy: WritePolicy;
 }
-
-const PNG_PIXEL_RATIO = 2;
-const MAX_PNG_PIXELS = 64_000_000;
 
 function docNodeToFlowNode(dn: DocNode): Node {
   const colors: Record<string, string> = {
@@ -333,8 +331,8 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
       const bounds = getNodesBounds(visibleNodes);
       const imageWidth = Math.ceil(bounds.width + 240);
       const imageHeight = Math.ceil(bounds.height + 240);
-      const renderedPixels = imageWidth * imageHeight * PNG_PIXEL_RATIO * PNG_PIXEL_RATIO;
-      if (renderedPixels > MAX_PNG_PIXELS) {
+      const pixelRatio = selectPngPixelRatio(imageWidth, imageHeight);
+      if (pixelRatio === null) {
         throw new Error('画布尺寸过大，请先折叠部分轨道后再导出。');
       }
 
@@ -343,7 +341,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         backgroundColor: '#0a0a0f',
         width: imageWidth,
         height: imageHeight,
-        pixelRatio: PNG_PIXEL_RATIO,
+        pixelRatio,
         style: {
           width: `${imageWidth}px`,
           height: `${imageHeight}px`,
