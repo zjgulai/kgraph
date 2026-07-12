@@ -26,6 +26,7 @@ import '@xyflow/react/dist/style.css';
 import { toPng } from 'html-to-image';
 import { Download, FileText, Home, ImageDown, RotateCcw, Save, ShieldAlert } from 'lucide-react';
 import type { DocCanvas as DocCanvasType, DocNode, CanvasState } from '@/lib/parser/types';
+import { formatDisplayDate, formatDisplayInteger } from '@/lib/shared/display-format';
 import {
   isDocNodeHiddenByTrack,
   removeDocNodeFromView,
@@ -469,7 +470,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
               <div>轨道: Vibe / Pro · {document.edges.filter(e => e.type === 'expansion' || e.type === 'reference').length} 个工具引用</div>
               {(document as any)._file && (
                 <div className="text-zinc-600 mt-1 pt-1 border-t border-zinc-800">
-                  文件: {new Date((document as any)._file.mtime).toLocaleDateString('zh-CN')} · {(document as any)._file.bytes.toLocaleString()} 字符
+                  文件: {formatDisplayDate((document as any)._file.mtime)} · {formatDisplayInteger((document as any)._file.bytes)} 字符
                 </div>
               )}
               <div className="text-zinc-600">

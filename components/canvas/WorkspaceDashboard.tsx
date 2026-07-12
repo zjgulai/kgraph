@@ -16,6 +16,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import type { DocumentEntry } from '@/lib/shared/document-registry';
+import { formatDisplayDateTime, formatDisplayInteger } from '@/lib/shared/display-format';
 import type { WritePolicy } from '@/lib/server/write-guard';
 
 interface Props {
@@ -150,8 +151,8 @@ export function WorkspaceDashboard({ initialEntries, writePolicy }: Props) {
                         <p className="mt-1 text-sm text-zinc-400">{entry.description}</p>
                         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600">
                           <span>{entry.subtitle}</span>
-                          {entry.bytes !== undefined && <span>{entry.bytes.toLocaleString()} bytes</span>}
-                          {entry.mtime && <span>更新 {new Date(entry.mtime).toLocaleString('zh-CN')}</span>}
+                          {entry.bytes !== undefined && <span>{formatDisplayInteger(entry.bytes)} bytes</span>}
+                          {entry.mtime && <span>更新 {formatDisplayDateTime(entry.mtime)}</span>}
                         </div>
                       </div>
                     </Link>
