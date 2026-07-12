@@ -20,7 +20,7 @@ export function SaveIndicator({ status, lastSaved, errorMessage }: Props) {
   const time = lastSaved ? new Date(lastSaved).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
 
   return (
-    <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium backdrop-blur-md border shadow-lg transition-all duration-300 animate-in fade-in-up duration-200 ${status === 'saved' ? 'bg-emerald-900/60 border-emerald-700/50 text-emerald-300' : status === 'error' ? 'bg-red-900/60 border-red-700/50 text-red-300' : 'bg-zinc-800/80 border-zinc-700/50 text-zinc-400'}`}>
+    <div className={`fixed bottom-4 right-4 z-50 flex min-h-11 items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-semibold shadow-[0_10px_28px_rgba(24,32,25,0.12)] transition-all duration-200 animate-in fade-in-up sm:bottom-6 sm:right-6 ${status === 'saved' ? 'border-[#BCD6C1] bg-[#F1F8F0] text-[#2D6B47]' : status === 'error' ? 'border-[#E5C4BD] bg-[#FFF4F1] text-[#A23E3E]' : 'border-[#D5DFD0] bg-white text-[#526053]'}`}>
       {status === 'saving' && <Loader2 className="w-3 h-3 animate-spin" />}
       {status === 'saved' && <Check className="w-3 h-3" />}
       {status === 'error' && <AlertTriangle className="w-3 h-3" />}

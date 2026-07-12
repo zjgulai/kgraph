@@ -15,12 +15,24 @@ import { atomicWriteJson, withFileLock } from '@/lib/server/file-ops';
 import { checkWriteAccess } from '@/lib/server/write-guard';
 import { projectPath } from '@/lib/server/project-root';
 import { parseJsonBody } from '@/lib/server/parse-json-body';
+import { isCanvasStateV2, isLegacyCanvasState } from '@/lib/canvas/canvas-state';
 
 const STATE_DIR = 'data/canvas-states';
 const DocumentIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/);
 const CoordinateSchema = z.number().finite();
+const CanvasViewSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('overview') }).strict(),
+  z.object({
+    kind: z.literal('focused-region'),
+    regionId: z.string().min(1).max(256),
+  }).strict(),
+]);
 const CanvasStateSchema = z.object({
   documentId: DocumentIdSchema,
+  layoutVersion: z.literal(2),
+  layoutMode: z.literal('architecture-house'),
+  graphFingerprint: z.string().min(1).max(256),
+  view: CanvasViewSchema,
   viewport: z.object({
     x: CoordinateSchema,
     y: CoordinateSchema,
@@ -32,7 +44,7 @@ const CanvasStateSchema = z.object({
       message: 'At most 5,000 node positions are allowed',
     }),
   lastSaved: z.string().optional(),
-});
+}).strict();
 
 function ensureDir() {
   mkdirSync(projectPath(STATE_DIR), { recursive: true });
@@ -49,7 +61,11 @@ export async function GET(req: NextRequest) {
   if (!existsSync(filePath)) return NextResponse.json({ viewport: { x: 0, y: 0, zoom: 1 }, expandedNodes: [], nodePositions: {}, documentId: docId });
 
   const raw = readFileSync(filePath, 'utf-8');
-  return NextResponse.json(JSON.parse(raw));
+  const stored: unknown = JSON.parse(raw);
+  if (!isCanvasStateV2(stored) && !isLegacyCanvasState(stored)) {
+    return NextResponse.json({ error: 'Invalid stored canvas state' }, { status: 500 });
+  }
+  return NextResponse.json(stored);
 }
 
 export async function POST(req: NextRequest) {

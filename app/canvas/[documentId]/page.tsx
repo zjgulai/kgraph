@@ -10,7 +10,6 @@ import Link from 'next/link';
 import { AlertTriangle, FileQuestion } from 'lucide-react';
 import { CanvasClientWrapper } from '@/components/canvas/CanvasClientWrapper';
 import { parseMarkdownToGraph } from '@/lib/parser/markdown-to-graph';
-import { computeLayout } from '@/lib/canvas/layout-engine';
 import { getDocumentEntry } from '@/lib/shared/document-registry';
 import { projectPath } from '@/lib/server/project-root';
 import { getWritePolicy } from '@/lib/server/write-guard';
@@ -24,14 +23,14 @@ export default async function CanvasPage({ params }: { params: Promise<{ documen
 
   if (!existsSync(filePath)) {
     return (
-      <div className="min-h-[100dvh] bg-zinc-950 flex items-center justify-center">
+      <div className="flex min-h-[100dvh] items-center justify-center bg-[#F8FBF0]">
         <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <FileQuestion className="w-8 h-8 text-zinc-600" />
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl border border-[#D5DFD0] bg-white">
+            <FileQuestion className="h-8 w-8 text-[#637064]" />
           </div>
-          <p className="text-zinc-400 text-lg mb-2">文档文件不存在</p>
-          <p className="text-zinc-600 text-xs font-mono max-w-md mx-auto break-all">{filePath}</p>
-          <Link href="/" className="inline-block mt-6 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-sm transition-colors">返回工作台</Link>
+          <p className="mb-2 text-lg font-semibold text-[#182019]">文档文件不存在</p>
+          <p className="mx-auto max-w-md break-all font-mono text-xs text-[#637064]">{filePath}</p>
+          <Link href="/" className="mt-6 inline-flex min-h-11 items-center rounded-md bg-[#355C45] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#294A36]">返回工作台</Link>
         </div>
       </div>
     );
@@ -42,24 +41,18 @@ export default async function CanvasPage({ params }: { params: Promise<{ documen
 
   if (graph.nodes.length === 0) {
     return (
-      <div className="min-h-[100dvh] bg-zinc-950 flex items-center justify-center">
+      <div className="flex min-h-[100dvh] items-center justify-center bg-[#F8FBF0]">
         <div className="text-center max-w-md px-6">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <AlertTriangle className="w-8 h-8 text-amber-500" />
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl border border-[#E6CFAE] bg-[#FBF2E5]">
+            <AlertTriangle className="h-8 w-8 text-[#9A5B12]" />
           </div>
-          <p className="text-lg text-zinc-300 mb-2">该文档暂无内容</p>
-          <p className="text-sm text-zinc-500 font-mono break-all">{filePath}</p>
-          <p className="text-xs text-zinc-600 mt-2">文档已读取（{markdown.length.toLocaleString()} 字符），但未解析出任何节点。</p>
-          <Link href="/" className="inline-block mt-6 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-sm transition-colors">返回工作台</Link>
+          <p className="mb-2 text-lg font-semibold text-[#182019]">该文档暂无内容</p>
+          <p className="break-all font-mono text-sm text-[#637064]">{filePath}</p>
+          <p className="mt-2 text-xs text-[#637064]">文档已读取（{markdown.length.toLocaleString()} 字符），但未解析出任何节点。</p>
+          <Link href="/" className="mt-6 inline-flex min-h-11 items-center rounded-md bg-[#355C45] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#294A36]">返回工作台</Link>
         </div>
       </div>
     );
-  }
-
-  const layout = computeLayout(graph.nodes, graph.edges);
-  for (const pos of layout.nodes) {
-    const node = graph.nodes.find(n => n.id === pos.id);
-    if (node) node.position = pos.position;
   }
 
   // Attach file metadata so the canvas header can show last-modified time

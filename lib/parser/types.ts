@@ -45,10 +45,18 @@ export interface DocEdge {
   animated?: boolean;
 }
 
+export type CanvasView =
+  | { kind: 'overview' }
+  | { kind: 'focused-region'; regionId: string };
+
 export interface CanvasState {
   documentId: string;
+  layoutVersion: 2;
+  layoutMode: 'architecture-house';
+  graphFingerprint: string;
+  view: CanvasView;
   viewport: { x: number; y: number; zoom: number };
   expandedNodes: string[];
   nodePositions: Record<string, { x: number; y: number }>;
-  lastSaved: string;
+  lastSaved?: string;
 }

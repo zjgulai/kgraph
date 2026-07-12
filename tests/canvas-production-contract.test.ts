@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 const viewer = readFileSync(resolve(root, 'components/canvas/CanvasViewer.tsx'), 'utf8');
 const detailSheet = readFileSync(resolve(root, 'components/canvas/NodeDetailSheet.tsx'), 'utf8');
+const mobileView = readFileSync(resolve(root, 'components/canvas/MobileArchitectureView.tsx'), 'utf8');
 const page = readFileSync(resolve(root, 'app/canvas/[documentId]/page.tsx'), 'utf8');
 
 test('canvas receives the server write policy and readonly saves stay browser-local', () => {
@@ -35,19 +36,45 @@ test('readonly node details disable document mutation before any API callback', 
   assert.ok((detailSheet.match(/readOnly=\{readOnly\}/g) || []).length >= 2);
 });
 
-test('server restore accepts any non-empty position set', () => {
-  assert.match(viewer, /Object\.keys\(state\.nodePositions\)\.length > 0/);
-  assert.doesNotMatch(viewer, /Object\.keys\(state\.nodePositions\)\.length > 5/);
+test('canvas restores positions only through the version and graph fingerprint gate', () => {
+  assert.match(viewer, /restoreCanvasState\(await response\.json\(\), identity\)/);
+  assert.match(viewer, /getCanvasStateLocalStorageKey\(document\.id\)/);
+  assert.match(viewer, /removeItem\(getLegacyCanvasStateLocalStorageKey\(document\.id\)\)/);
+  assert.doesNotMatch(viewer, /localStorage\.getItem\(`doccas-/);
+
+  const restoreStart = viewer.indexOf('const restore = async () =>');
+  const localRead = viewer.indexOf('localStorage.getItem(getCanvasStateLocalStorageKey(document.id))', restoreStart);
+  const serverRead = viewer.indexOf('fetch(`/api/canvas-state?documentId=${document.id}`)', restoreStart);
+  assert.ok(localRead > restoreStart && serverRead > localRead, 'browser-local v2 state must override server state');
+  assert.match(viewer, /localStorage\.setItem\(getCanvasStateLocalStorageKey\(document\.id\), JSON\.stringify\(reset\)\)/);
+  assert.match(viewer, /restoreCanvasState\(restoredState, identity\)/);
+  assert.match(viewer, /generation !== restoreGenerationRef\.current/);
+  assert.match(viewer, /const freshLocal = freshRaw \? restoreCanvasState\(JSON\.parse\(freshRaw\), identity\) : null/);
+  assert.match(viewer, /const saveCanvasState = useCallback\(async \(\) => \{\s+restoreGenerationRef\.current \+= 1/);
+  assert.match(viewer, /setRestoredState\(state\)/);
 });
 
-test('PNG export uses the highest safe pixel ratio selected by the shared budget helper', () => {
+test('mobile focus uses the view-model resource aggregation instead of reclassifying nodes', () => {
+  assert.match(viewer, /focusedRegion\.trackSummaries\.find\(summary => summary\.track === track\)\?\.nodeIds/);
+  assert.match(viewer, /resourceCount: focusedRegion\.resources\.count/);
+  assert.match(mobileView, /focused\?\.nodesByTrack/);
+  assert.match(mobileView, /track === 'shared' \|\| grouped\[track\]\.length > 0/);
+  assert.doesNotMatch(mobileView, /metadata\.isToolReference/);
+  assert.doesNotMatch(mobileView, /nodeTrack\(/);
+});
+
+test('PNG export always projects the architecture overview at the highest safe pixel ratio', () => {
+  assert.match(viewer, /setCanvasView\(\{ kind: 'overview' \}\)/);
+  assert.match(viewer, /link\.download = `\$\{document\.id\}-architecture\.png`/);
+  assert.match(viewer, /if \(exportInFlightRef\.current\) return/);
+  assert.match(viewer, /if \(!projectionReady\) throw new Error\('建筑全景投影未在时限内稳定。'\)/);
   assert.match(viewer, /selectPngPixelRatio\(imageWidth, imageHeight\)/);
   assert.match(viewer, /pixelRatio,/);
   assert.doesNotMatch(viewer, /pixelRatio:\s*PNG_PIXEL_RATIO/);
 
   const selectionIndex = viewer.indexOf('selectPngPixelRatio(imageWidth, imageHeight)');
   const nullGuardIndex = viewer.indexOf('if (pixelRatio === null)', selectionIndex);
-  const renderIndex = viewer.indexOf('await toPng(viewportEl', selectionIndex);
+  const renderIndex = viewer.indexOf('await toPng(viewportElement', selectionIndex);
   assert.ok(selectionIndex >= 0);
   assert.ok(nullGuardIndex > selectionIndex);
   assert.ok(renderIndex > nullGuardIndex);

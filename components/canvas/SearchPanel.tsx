@@ -10,9 +10,10 @@ import type { DocNode } from '@/lib/parser/types';
 interface Props {
   nodes: DocNode[];
   onNavigateToNode: (nodeId: string) => void;
+  openRequest?: number;
 }
 
-export function SearchPanel({ nodes, onNavigateToNode }: Props) {
+export function SearchPanel({ nodes, onNavigateToNode, openRequest = 0 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -28,6 +29,14 @@ export function SearchPanel({ nodes, onNavigateToNode }: Props) {
   };
 
   useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
+
+  useEffect(() => {
+    if (openRequest <= 0) return;
+    setQuery('');
+    setDebouncedQuery('');
+    setActiveIndex(0);
+    setOpen(true);
+  }, [openRequest]);
 
   // Results computed from debounced query — NOT live query (that would defeat debouncing)
   const results = useMemo(() => {
@@ -72,26 +81,26 @@ export function SearchPanel({ nodes, onNavigateToNode }: Props) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setOpen(false)} />
-      <div className="relative w-full max-w-lg bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center px-4 pt-[12vh] sm:pt-[15vh]">
+      <button className="absolute inset-0 h-full w-full cursor-default bg-[#182019]/25" onClick={() => setOpen(false)} aria-label="关闭搜索" />
+      <div className="relative w-full max-w-lg overflow-hidden rounded-xl border border-[#C8D3C3] bg-white shadow-[0_24px_70px_rgba(24,32,25,0.18)] animate-in zoom-in-95 duration-150">
         {/* Input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
-          <Search className="w-4 h-4 text-zinc-500 shrink-0" />
+        <div className="flex min-h-14 items-center gap-3 border-b border-[#D5DFD0] px-4 py-2">
+          <Search className="h-4 w-4 shrink-0 text-[#637064]" />
           <input
             autoFocus
             value={query}
             onChange={e => handleQueryChange(e.target.value)}
             placeholder="搜索节点标题或内容..."
-            className="flex-1 bg-transparent text-zinc-200 text-sm outline-none placeholder:text-zinc-600"
+            className="min-h-11 flex-1 bg-transparent text-sm text-[#182019] outline-none placeholder:text-[#637064]"
           />
-          <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 font-mono">ESC</kbd>
+          <kbd className="rounded border border-[#D5DFD0] bg-[#F8FBF2] px-1.5 py-0.5 font-mono text-[10px] text-[#637064]">ESC</kbd>
           <button
             onClick={() => setOpen(false)}
-            className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+            className="flex h-11 w-11 items-center justify-center rounded-md text-[#637064] transition-colors hover:bg-[#F0F5EB] hover:text-[#182019]"
             aria-label="关闭搜索"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
@@ -99,34 +108,34 @@ export function SearchPanel({ nodes, onNavigateToNode }: Props) {
         {debouncedQuery.trim() && (
           <div className="max-h-72 overflow-y-auto">
             {results.length === 0 ? (
-              <div className="px-4 py-6 text-center text-sm text-zinc-500">没有找到匹配的节点</div>
+              <div className="px-4 py-8 text-center text-sm text-[#637064]">没有找到匹配的节点</div>
             ) : (
               results.map((n, idx) => (
                 <button
                   key={n.id}
                   onClick={() => handleNavigate(n.id)}
-                  className={`w-full px-4 py-2.5 text-left transition-colors flex items-start gap-3 group ${idx === activeIndex ? 'bg-indigo-900/30 border-l-2 border-indigo-500' : 'hover:bg-zinc-800/50 border-l-2 border-transparent'}`}
+                  className={`group flex min-h-14 w-full items-start gap-3 px-4 py-2.5 text-left transition-colors ${idx === activeIndex ? 'bg-[#EEF0F8] shadow-[inset_3px_0_0_#4F5F9B]' : 'hover:bg-[#F8FBF2]'}`}
                 >
                   <div className="shrink-0 mt-0.5">
                     {n.track === 'vibe' ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/30 text-cyan-400"><Rocket className="h-2.5 w-2.5" /> Vibe</span>
+                      <span className="inline-flex items-center gap-1 rounded bg-[#E5F3F0] px-1.5 py-0.5 text-[10px] font-semibold text-[#147D78]"><Rocket className="h-2.5 w-2.5" /> Vibe</span>
                     ) : n.track === 'pro' ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400"><Wrench className="h-2.5 w-2.5" /> Pro</span>
+                      <span className="inline-flex items-center gap-1 rounded bg-[#F8EEDC] px-1.5 py-0.5 text-[10px] font-semibold text-[#9A5B12]"><Wrench className="h-2.5 w-2.5" /> Pro</span>
                     ) : n.track === 'both' ? (
-                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-indigo-900/30 text-indigo-300">Shared</span>
+                      <span className="inline-flex items-center rounded bg-[#ECEEF7] px-1.5 py-0.5 text-[10px] font-semibold text-[#4F5F9B]">Shared</span>
                     ) : n.stageNumber !== undefined && n.stageNumber >= 0 ? (
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">§{n.stageNumber}</span>
+                      <span className="rounded border border-[#D5DFD0] bg-[#F8FBF2] px-1.5 py-0.5 font-mono text-[10px] text-[#526053]">§{n.stageNumber}</span>
                     ) : n.type === 'tool' ? (
-                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-violet-900/30 text-violet-400"><Wrench className="h-2.5 w-2.5" /></span>
+                      <span className="inline-flex items-center rounded bg-[#EEF1EB] px-1.5 py-0.5 text-[10px] text-[#526053]"><Wrench className="h-2.5 w-2.5" /></span>
                     ) : null}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-zinc-300 group-hover:text-zinc-100 transition-colors line-clamp-1">{n.title}</div>
+                    <div className="line-clamp-1 text-sm font-medium text-[#263128] transition-colors group-hover:text-[#182019]">{n.title}</div>
                     {n.summary && (
-                      <div className="text-xs text-zinc-500 mt-0.5 line-clamp-1">{n.summary}</div>
+                      <div className="mt-0.5 line-clamp-1 text-xs text-[#637064]">{n.summary}</div>
                     )}
                   </div>
-                  <ChevronRight className="w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-400 shrink-0 mt-1 transition-colors" />
+                  <ChevronRight className="mt-1 h-3.5 w-3.5 shrink-0 text-[#637064] transition-colors group-hover:text-[#526053]" />
                 </button>
               ))
             )}
@@ -135,7 +144,7 @@ export function SearchPanel({ nodes, onNavigateToNode }: Props) {
 
         {/* Quick nav hint */}
         {!debouncedQuery.trim() && (
-          <div className="px-4 py-6 text-center text-xs text-zinc-600">
+          <div className="px-4 py-7 text-center text-xs text-[#637064]">
             <span>输入关键词搜索 {nodes.length} 个节点 · ↑↓ 选择 · Enter 跳转 · Ctrl+K 开关</span>
           </div>
         )}

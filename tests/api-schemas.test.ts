@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -62,12 +62,54 @@ function patchPayload(content: string) {
 function canvasState(overrides: Record<string, unknown> = {}) {
   return {
     documentId: 'unknown-doc',
+    layoutVersion: 2,
+    layoutMode: 'architecture-house',
+    graphFingerprint: 'sha256:api-schema-fixture',
+    view: { kind: 'overview' },
     viewport: { x: 0, y: 0, zoom: 1 },
     expandedNodes: [],
     nodePositions: {},
     ...overrides,
   };
 }
+
+test('canvas-state POST rejects the legacy v1 schema', async () => {
+  const { POST } = (await routesPromise)[1];
+  const response = await POST(objectRequest({
+    documentId: 'unknown-doc',
+    viewport: { x: 0, y: 0, zoom: 1 },
+    expandedNodes: [],
+    nodePositions: {},
+  }));
+
+  assert.equal(response.status, 400);
+  assertNoWrites();
+});
+
+test('canvas-state GET keeps legacy persisted state readable for a client-side safe reset', async () => {
+  const stateDir = join(fixtureRoot, 'data/canvas-states');
+  const legacy = {
+    documentId: 'vibe-track',
+    viewport: { x: 10, y: 20, zoom: 0.5 },
+    expandedNodes: ['legacy-node'],
+    nodePositions: { 'legacy-node': { x: 30, y: 40 } },
+    lastSaved: '2026-07-10T00:00:00.000Z',
+  };
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(join(stateDir, 'vibe-track.json'), JSON.stringify(legacy));
+
+  try {
+    const { GET } = (await routesPromise)[1];
+    const response = await GET(new NextRequest(
+      'http://localhost/api/canvas-state?documentId=vibe-track',
+    ));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), legacy);
+  } finally {
+    rmSync(join(fixtureRoot, 'data'), { recursive: true, force: true });
+  }
+  assertNoWrites();
+});
 
 const routesPromise = Promise.all([
   import('../app/api/documents/route'),

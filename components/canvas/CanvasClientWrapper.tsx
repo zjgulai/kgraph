@@ -8,16 +8,14 @@ import type { WritePolicy } from '@/lib/server/write-guard';
 const CanvasViewer = dynamic(() => import('@/components/canvas/CanvasViewer'), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-[100dvh] bg-[#0a0a0f] flex items-center justify-center">
+    <div className="flex h-[100dvh] w-full items-center justify-center bg-[#F8FBF0]">
       <div className="text-center animate-in fade-in duration-500">
-        {/* Branded loader ring */}
-        <div className="relative w-16 h-16 mx-auto mb-6">
-          <div className="absolute inset-0 rounded-full border-2 border-zinc-800" />
-          <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-indigo-500 animate-spin" />
-          <div className="absolute inset-2 rounded-full border-2 border-transparent border-t-cyan-400 animate-spin" style={{ animationDuration: '0.8s', animationDirection: 'reverse' }} />
+        <div className="relative mx-auto mb-6 h-14 w-14">
+          <div className="absolute inset-0 rounded-full border-2 border-[#D5DFD0]" />
+          <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-[#4F5F9B]" />
         </div>
-        <p className="text-zinc-500 text-sm font-medium">正在加载画布</p>
-        <p className="text-zinc-700 text-xs mt-2 font-mono">parsing markdown → computing layout → rendering nodes</p>
+        <p className="text-sm font-semibold text-[#3C493D]">正在构建架构全景</p>
+        <p className="mt-2 font-mono text-xs text-[#637064]">parsing markdown → computing layout → rendering nodes</p>
       </div>
     </div>
   ),

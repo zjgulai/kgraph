@@ -15,14 +15,14 @@ export class CanvasErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="w-full h-[100dvh] bg-zinc-950 flex items-center justify-center">
-          <div className="text-center max-w-md px-6">
-            <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold text-zinc-200 mb-2">画布渲染异常</h2>
-            <p className="text-sm text-zinc-400 mb-4 font-mono bg-zinc-900 rounded-lg p-3 text-left overflow-auto max-h-32">{this.state.error}</p>
+        <div className="flex h-[100dvh] w-full items-center justify-center bg-[#F8FBF0]">
+          <div className="mx-5 max-w-md rounded-xl border border-[#D5DFD0] bg-white px-6 py-8 text-center shadow-[0_12px_32px_rgba(24,32,25,0.08)]">
+            <AlertTriangle className="mx-auto mb-4 h-12 w-12 text-[#9A5B12]" />
+            <h2 className="mb-2 text-lg font-semibold text-[#182019]">画布渲染异常</h2>
+            <p className="mb-5 max-h-32 overflow-auto rounded-md border border-[#E4EAE0] bg-[#F8FBF2] p-3 text-left font-mono text-sm text-[#526053]">{this.state.error}</p>
             <button
               onClick={() => { this.setState({ hasError: false, error: '' }); window.location.reload(); }}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm transition-colors"
+              className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[#4F5F9B] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#414F82]"
             >
               <RefreshCw className="w-4 h-4" /> 重新加载
             </button>

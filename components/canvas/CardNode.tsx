@@ -38,66 +38,56 @@ const typeIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   principle: Star,
 };
 
-export function CardNode({ data }: NodeProps) {
+export function CardNode({ data, selected }: NodeProps) {
   const d = data as unknown as CardNodeData;
   const Icon = typeIcons[d.type];
 
-  const isDocument = d.type === 'document';
   const isStage = d.type === 'section';
-  const isTrack = d.type === 'track';
   const isTool = d.type === 'tool' || d.type === 'prompt';
-
-  const bgOpacity = isDocument ? '20' : isStage ? '15' : isTrack ? '18' : '10';
-  const borderOpacity = isStage ? '50' : isTool ? '35' : '30';
 
   return (
     <div
-      className={`group relative rounded-xl border backdrop-blur-sm transition-all duration-300 cursor-pointer overflow-hidden
-        ${isDocument ? 'border-opacity-60 shadow-lg shadow-black/30 ring-1 ring-white/5' : isStage ? 'border-opacity-50 shadow-lg shadow-black/20' : 'border-opacity-30 shadow-sm shadow-black/10'}
-        ${isTool ? 'scale-[0.88] hover:scale-[0.92]' : 'hover:scale-[1.02]'}
-        hover:shadow-xl hover:shadow-black/30
-      `}
+      className={`group relative h-full w-full cursor-pointer overflow-hidden rounded-[14px] border bg-white transition-[border-color,box-shadow] duration-150 ${selected ? 'border-[#355C45] shadow-[0_0_0_2px_rgba(53,92,69,0.16),0_12px_30px_rgba(35,48,32,0.12)]' : 'border-[#D5DFD0] shadow-[0_8px_22px_rgba(35,48,32,0.07)] hover:border-[#9AAC96] hover:shadow-[0_12px_28px_rgba(35,48,32,0.11)]'}`}
       style={{
-        background: `linear-gradient(135deg, ${d.color}${bgOpacity}, ${d.color}08)`,
-        borderColor: `${d.color}${borderOpacity}`,
         width: '100%',
         height: '100%',
       }}
     >
-      {/* Top accent line */}
-      <div className="absolute top-0 left-0 right-0 h-[2px] opacity-50" style={{ background: `linear-gradient(90deg, transparent, ${d.color}80, transparent)` }} />
+      <div className="absolute inset-y-0 left-0 w-[3px]" style={{ backgroundColor: d.color }} />
 
-      <Handle type="target" position={Position.Top} className="!bg-zinc-500 !w-1.5 !h-1.5 !border-0 !opacity-0 group-hover:!opacity-100 transition-opacity" />
-      <Handle type="source" position={Position.Bottom} className="!bg-zinc-500 !w-1.5 !h-1.5 !border-0 !opacity-0 group-hover:!opacity-100 transition-opacity" />
+      <Handle id="top" type="target" position={Position.Top} className="architecture-card-handle" />
+      <Handle id="bottom" type="source" position={Position.Bottom} className="architecture-card-handle" />
+      <Handle id="left" type="target" position={Position.Left} className="architecture-card-handle" />
+      <Handle id="right" type="source" position={Position.Right} className="architecture-card-handle" />
 
       <div className="px-3 py-2.5 h-full flex flex-col justify-between">
         {/* Header */}
         <div>
           <div className="flex items-center gap-2 mb-1">
             {d.stageNumber !== undefined && d.stageNumber >= 0 && (
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-zinc-800 text-zinc-400 shrink-0">
+              <span className="shrink-0 rounded-md bg-[#EDF3E9] px-1.5 py-0.5 font-mono text-[10px] text-[#637064]">
                 §{d.stageNumber}
               </span>
             )}
             {d.track && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-md shrink-0 ${d.track === 'vibe' ? 'bg-cyan-900/50 text-cyan-400' : d.track === 'pro' ? 'bg-amber-900/50 text-amber-400' : 'bg-indigo-900/50 text-indigo-300'}`}>
+              <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${d.track === 'vibe' ? 'bg-[#E2F2EF] text-[#147D78]' : d.track === 'pro' ? 'bg-[#F7ECDD] text-[#9A5B12]' : 'bg-[#E9ECF6] text-[#4F5F9B]'}`}>
                 {d.track === 'vibe' ? 'Vibe' : d.track === 'pro' ? 'Pro' : 'Shared'}
               </span>
             )}
-            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-zinc-800 text-zinc-500 shrink-0">
+            <span className="shrink-0 rounded-md border border-[#D5DFD0] bg-[#F8FBF2] px-1.5 py-0.5 text-[10px] text-[#637064]">
               {typeLabels[d.type] || d.type}
             </span>
-            {Icon && <Icon className="w-3 h-3 text-zinc-500 shrink-0" />}
+            {Icon && <Icon className="h-3 w-3 shrink-0 text-[#637064]" />}
           </div>
 
-          <h4 className={`text-zinc-200 font-medium leading-tight line-clamp-2 ${isStage ? 'text-sm' : 'text-xs'}`}>
+          <h4 className={`line-clamp-2 font-semibold leading-snug text-[#182019] ${isStage ? 'text-sm' : 'text-xs'}`}>
             {d.title}
           </h4>
         </div>
 
         {/* Summary */}
         {d.summary && !isTool && (
-          <p className="text-zinc-500 text-[11px] leading-relaxed mt-1 line-clamp-2">
+          <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[#637064]">
             {d.summary}
           </p>
         )}
@@ -105,25 +95,25 @@ export function CardNode({ data }: NodeProps) {
         {/* Footer indicators */}
         <div className="flex items-center gap-2 mt-1.5">
           {d.toolReferences && d.toolReferences.length > 0 && (
-            <span className="text-[10px] text-zinc-600 flex items-center gap-1">
+            <span className="flex items-center gap-1 text-[10px] text-[#637064]">
               <Code2 className="w-2.5 h-2.5" />
               {d.toolReferences.length}
             </span>
           )}
           {d.promptTemplates && d.promptTemplates.length > 0 && (
-            <span className="text-[10px] text-zinc-600 flex items-center gap-1">
+            <span className="flex items-center gap-1 text-[10px] text-[#637064]">
               <MessageSquare className="w-2.5 h-2.5" />
               {d.promptTemplates.length}
             </span>
           )}
           {d.contentBlocksCount !== undefined && d.contentBlocksCount > 0 && (
-            <span className="text-[10px] text-zinc-600 flex items-center gap-1">
+            <span className="flex items-center gap-1 text-[10px] text-[#637064]">
               <Blocks className="w-2.5 h-2.5" />
               {d.contentBlocksCount}
             </span>
           )}
           {d.stageNumber !== undefined && d.stageNumber >= 1 && (
-            <span className="text-[10px] text-zinc-600 ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="ml-auto flex items-center gap-0.5 text-[10px] text-[#355C45] opacity-0 transition-opacity group-hover:opacity-100">
               展开 <ChevronRight className="w-2.5 h-2.5" />
             </span>
           )}

@@ -23,5 +23,5 @@ test('hydrated dashboard and canvas metadata avoid locale-dependent rendering', 
   assert.doesNotMatch(dashboard, /\.toLocale(?:String|DateString|TimeString)\(/);
   assert.doesNotMatch(viewer, /\.toLocale(?:String|DateString|TimeString)\(/);
   assert.match(dashboard, /formatDisplayDateTime\(entry\.mtime\)/);
-  assert.match(viewer, /formatDisplayDate\(\(document as any\)\._file\.mtime\)/);
+  assert.match(viewer, /formatDisplayDate\(fileMetadata\.mtime\)/);
 });

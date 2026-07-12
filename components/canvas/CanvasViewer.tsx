@@ -1,46 +1,86 @@
 'use client';
-/**
- * CanvasViewer.tsx — Main React Flow wrapper component.
- *
- * Renders the parsed document graph as an interactive infinite canvas.
- * Supports: drag, zoom, node selection, expand/collapse branches, card detail view.
- */
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  ReactFlow,
   Background,
-  Controls,
-  MiniMap,
-  useNodesState,
-  useEdgesState,
-  useReactFlow,
-  type Node,
-  type Edge,
   BackgroundVariant,
-  Panel,
+  Controls,
   getNodesBounds,
   getViewportForBounds,
+  MiniMap,
+  ReactFlow,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+  type Edge,
+  type Node,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { toPng } from 'html-to-image';
-import { Download, FileText, Home, ImageDown, RotateCcw, Save, ShieldAlert } from 'lucide-react';
-import type { DocCanvas as DocCanvasType, DocNode, CanvasState } from '@/lib/parser/types';
+import {
+  ArrowLeft,
+  Download,
+  FileText,
+  Home,
+  ImageDown,
+  RotateCcw,
+  Save,
+  Search,
+  ShieldAlert,
+} from 'lucide-react';
+import type {
+  CanvasState,
+  CanvasView,
+  DocCanvas as DocCanvasType,
+  DocEdge,
+  DocNode,
+} from '@/lib/parser/types';
+import type { WritePolicy } from '@/lib/server/write-guard';
 import { formatDisplayDate, formatDisplayInteger } from '@/lib/shared/display-format';
 import {
-  isDocNodeHiddenByTrack,
+  buildArchitectureViewModel,
+  type ArchitectureRegion,
+  type ArchitectureViewModel,
+} from '@/lib/canvas/architecture-view-model';
+import {
+  computeArchitectureLayout,
+  type ArchitectureLayoutNode,
+} from '@/lib/canvas/layout-engine';
+import {
+  createCanvasState,
+  getCanvasStateLocalStorageKey,
+  getLegacyCanvasStateLocalStorageKey,
+  resetCanvasState,
+  restoreCanvasState,
+} from '@/lib/canvas/canvas-state';
+import {
   removeDocNodeFromView,
   updateDocNodeAfterSave,
 } from '@/lib/canvas/doc-node-state';
 import { selectPngPixelRatio } from '@/lib/canvas/png-export';
+import {
+  ArchitectureCapNode,
+  ArchitectureFloorNode,
+  ArchitectureLaneNode,
+  ArchitectureResourceNode,
+  ArchitectureRoomGroupNode,
+  type ArchitectureCapData,
+  type ArchitectureFloorData,
+  type ArchitectureRoomPreview,
+} from './ArchitectureNodes';
+import { MobileArchitectureView, type MobileArchitectureFloor } from './MobileArchitectureView';
 import { CardNode } from './CardNode';
 import { NodeDetailSheet } from './NodeDetailSheet';
-import { TrackToggle } from './TrackToggle';
-import { SearchPanel } from './SearchPanel';
 import { SaveIndicator } from './SaveIndicator';
-import type { WritePolicy } from '@/lib/server/write-guard';
+import { SearchPanel } from './SearchPanel';
 
 const nodeTypes = {
+  architectureCap: ArchitectureCapNode,
+  architectureFloor: ArchitectureFloorNode,
+  architectureLane: ArchitectureLaneNode,
+  architectureResource: ArchitectureResourceNode,
+  architectureRoomGroup: ArchitectureRoomGroupNode,
   cardNode: CardNode,
 };
 
@@ -49,86 +89,24 @@ interface Props {
   writePolicy: WritePolicy;
 }
 
-function docNodeToFlowNode(dn: DocNode): Node {
-  const colors: Record<string, string> = {
-    document: '#818cf8',
-    section: '#6366f1',
-    subsection: '#a78bfa',
-    track: (dn.track === 'vibe' ? '#06b6d4' : '#f59e0b'),
-    step: '#10b981',
-    tool: '#8b5cf6',
-    prompt: '#ec4899',
-    principle: '#ef4444',
-  };
+type FileBackedDocument = DocCanvasType & {
+  _file?: { mtime: string; path: string; bytes: number };
+};
 
-  const width = dn.type === 'document' ? 380 : dn.type === 'section' ? 320 : dn.type === 'tool' || dn.type === 'prompt' ? 240 : 280;
-  const height = dn.type === 'document' ? 160 : dn.level === 2 ? 140 : dn.level === 3 ? 100 : 80;
-
-  return {
-    id: dn.id,
-    type: 'cardNode',
-    position: dn.position,
-    data: {
-      title: dn.title,
-      summary: dn.summary,
-      type: dn.type,
-      level: dn.level,
-      track: dn.track,
-      stageNumber: dn.stageNumber,
-      toolReferences: dn.toolReferences,
-      promptTemplates: dn.promptTemplates,
-      contentBlocksCount: dn.contentBlocks?.length || 0,
-      color: colors[dn.type] || '#71717a',
-    },
-    style: {
-      width,
-      height: Math.max(height, 60),
-    },
-  };
-}
-
-function docEdgeToFlowEdge(de: import('@/lib/parser/types').DocEdge): Edge {
-  const trackColor = de.label?.includes('Vibe') ? '#06b6d4' : de.label?.includes('Pro') ? '#f59e0b' : '#f59e0b';
-  const colors: Record<string, string> = {
-    flow: '#6366f1',
-    track: trackColor,
-    reference: '#8b5cf6',
-    expansion: '#10b981',
-  };
-
-  return {
-    id: de.id,
-    source: de.source,
-    target: de.target,
-    type: 'smoothstep',
-    animated: de.animated,
-    label: de.label,
-    style: {
-      stroke: colors[de.type] || '#71717a',
-      strokeWidth: de.type === 'flow' ? 2 : de.type === 'track' ? 2 : 1.5,
-      opacity: de.type === 'flow' ? 0.8 : de.type === 'track' ? 0.9 : 0.5,
-    },
-    labelStyle: {
-      fill: '#a1a1aa',
-      fontSize: 11,
-      fontWeight: 500,
-    },
-    labelBgStyle: {
-      fill: '#18181b',
-      fillOpacity: 0.9,
-    },
-    labelBgPadding: [6, 3] as [number, number],
-    labelBgBorderRadius: 4,
-  };
-}
+const NODE_COLORS: Record<DocNode['type'], string> = {
+  document: '#355C45',
+  section: '#4F5F9B',
+  subsection: '#667568',
+  track: '#147D78',
+  step: '#2D6B47',
+  tool: '#637064',
+  prompt: '#4F5F9B',
+  principle: '#A4493D',
+};
 
 function metadataString(node: DocNode, key: string): string | undefined {
   const value = node.metadata?.[key];
   return typeof value === 'string' ? value : undefined;
-}
-
-function isStageHeading(node: DocNode) {
-  return node.metadata.isStageHeading === true;
 }
 
 async function responseMessage(resp: Response): Promise<string> {
@@ -142,10 +120,93 @@ async function responseMessage(resp: Response): Promise<string> {
   }
 }
 
+function roomPreview(region: ArchitectureRegion): ArchitectureRoomPreview {
+  const count = (track: 'vibe' | 'shared' | 'pro') =>
+    region.trackSummaries.find(summary => summary.track === track)?.count ?? 0;
+  return {
+    id: region.id,
+    eyebrow: region.stageNumber === undefined
+      ? `MODULE ${String(region.order).padStart(2, '0')}`
+      : `STAGE ${String(region.stageNumber).padStart(2, '0')}`,
+    title: region.title,
+    summary: region.summary,
+    stageNumber: region.stageNumber,
+    counts: {
+      vibe: count('vibe'),
+      shared: count('shared'),
+      pro: count('pro'),
+      resources: region.resources.count,
+    },
+  };
+}
+
+function docNodeData(node: DocNode) {
+  const trackColor = node.track === 'vibe'
+    ? '#147D78'
+    : node.track === 'pro'
+      ? '#9A5B12'
+      : node.track === 'both'
+        ? '#4F5F9B'
+        : NODE_COLORS[node.type];
+  return {
+    docNodeId: node.id,
+    title: node.title,
+    summary: node.summary,
+    type: node.type,
+    level: node.level,
+    track: node.track,
+    stageNumber: node.stageNumber,
+    toolReferences: node.toolReferences,
+    promptTemplates: node.promptTemplates,
+    contentBlocksCount: node.contentBlocks?.length || 0,
+    color: trackColor,
+  };
+}
+
+function filterFocusedTracks(
+  model: ArchitectureViewModel,
+  view: CanvasView,
+  expandedTracks: Set<string>,
+): ArchitectureViewModel {
+  if (view.kind !== 'focused-region') return model;
+  const region = model.regions.find(candidate => candidate.id === view.regionId);
+  if (!region || region.stageNumber === undefined || region.stageNumber < 1) return model;
+  const filteredRegion: ArchitectureRegion = {
+    ...region,
+    trackSummaries: region.trackSummaries.map(summary => {
+      if (summary.track === 'shared') return summary;
+      const key = `stage${region.stageNumber}-${summary.track}`;
+      return expandedTracks.has(key)
+        ? summary
+        : { ...summary, nodeIds: [], previewNodeIds: [], count: 0 };
+    }),
+  };
+  return {
+    ...model,
+    regions: model.regions.map(candidate => candidate.id === filteredRegion.id ? filteredRegion : candidate),
+  };
+}
+
+function sameCanvasView(left: CanvasView, right: CanvasView): boolean {
+  if (left.kind !== right.kind) return false;
+  return left.kind === 'overview' || left.regionId === (right as { regionId: string }).regionId;
+}
+
+function defaultExpandedTracks(): Set<string> {
+  const tracks = new Set<string>();
+  for (let stage = 1; stage <= 8; stage++) {
+    tracks.add(`stage${stage}-vibe`);
+    tracks.add(`stage${stage}-pro`);
+  }
+  return tracks;
+}
+
 export default function CanvasViewer({ document, writePolicy }: Props) {
   const [docNodes, setDocNodes] = useState<DocNode[]>(() => document.nodes);
-  const [nodes, setNodes, onNodesChange] = useNodesState(document.nodes.map(docNodeToFlowNode));
-  const [edges, setEdges, onEdgesChange] = useEdgesState(document.edges.map(docEdgeToFlowEdge));
+  const [docEdges, setDocEdges] = useState<DocEdge[]>(() => document.edges);
+  const [canvasView, setCanvasView] = useState<CanvasView>({ kind: 'overview' });
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [activeStage, setActiveStage] = useState<number | null>(null);
@@ -153,192 +214,428 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
   const [lastSavedTime, setLastSavedTime] = useState('');
   const [saveError, setSaveError] = useState('');
   const [exportStatus, setExportStatus] = useState('');
+  const [layoutProfile, setLayoutProfile] = useState<'desktop' | 'tablet'>('desktop');
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [exportingPanorama, setExportingPanorama] = useState(false);
+  const [restoredState, setRestoredState] = useState<CanvasState | null>(null);
+  const [searchRequest, setSearchRequest] = useState(0);
   const { fitView, getViewport, setViewport } = useReactFlow();
-  const selectedNode = useMemo(
-    () => docNodes.find(node => node.id === selectedNodeId) ?? null,
-    [docNodes, selectedNodeId],
+  const autoFitRef = useRef(true);
+  const restoredViewportRef = useRef(false);
+  const canvasShellRef = useRef<HTMLDivElement>(null);
+  const nodesRef = useRef<Node[]>([]);
+  const restoreGenerationRef = useRef(0);
+  const exportInFlightRef = useRef(false);
+
+  const [expandedTracks, setExpandedTracks] = useState<Set<string>>(defaultExpandedTracks);
+
+  const architectureModel = useMemo(() => buildArchitectureViewModel({
+    id: document.id,
+    title: document.title,
+    version: document.version,
+    nodes: docNodes,
+    edges: docEdges,
+  }), [document.id, document.title, document.version, docEdges, docNodes]);
+  const layoutModel = useMemo(
+    () => filterFocusedTracks(architectureModel, canvasView, expandedTracks),
+    [architectureModel, canvasView, expandedTracks],
   );
+  const layout = useMemo(
+    () => computeArchitectureLayout(layoutModel, {
+      view: canvasView,
+      profile: exportingPanorama ? 'desktop' : layoutProfile,
+    }),
+    [canvasView, exportingPanorama, layoutModel, layoutProfile],
+  );
+  const regionById = useMemo(
+    () => new Map(architectureModel.regions.map(region => [region.id, region])),
+    [architectureModel.regions],
+  );
+  const nodeById = useMemo(() => new Map(docNodes.map(node => [node.id, node])), [docNodes]);
+  const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
+  const focusedRegion = canvasView.kind === 'focused-region'
+    ? regionById.get(canvasView.regionId)
+    : undefined;
+  const identity = useMemo(() => ({
+    documentId: document.id,
+    graphFingerprint: architectureModel.graphFingerprint,
+  }), [architectureModel.graphFingerprint, document.id]);
 
-  // Track toggle state — expanded by default
-  const [expandedTracks, setExpandedTracks] = useState<Set<string>>(() => {
-    const all = new Set<string>();
-    for (let s = 1; s <= 8; s++) { all.add(`stage${s}-vibe`); all.add(`stage${s}-pro`); }
-    return all;
-  });
-  const previousExpandedTracksRef = useRef(expandedTracks);
+  const openRegion = useCallback((regionId: string) => {
+    if (exportInFlightRef.current) return;
+    const region = regionById.get(regionId);
+    if (!region || region.kind === 'roof') return;
+    restoreGenerationRef.current += 1;
+    setCanvasView({ kind: 'focused-region', regionId });
+    setActiveStage(region.stageNumber ?? null);
+    setDetailOpen(false);
+    autoFitRef.current = true;
+    restoredViewportRef.current = true;
+  }, [regionById]);
 
-  // Restore canvas state from server + localStorage on mount
+  const returnToOverview = useCallback(() => {
+    if (exportInFlightRef.current) return;
+    restoreGenerationRef.current += 1;
+    setCanvasView({ kind: 'overview' });
+    setActiveStage(null);
+    setDetailOpen(false);
+    autoFitRef.current = true;
+    restoredViewportRef.current = true;
+  }, []);
+
+  const projectedNodes = useMemo<Node[]>(() => {
+    return layout.nodes.map((layoutNode: ArchitectureLayoutNode): Node => {
+      const base = {
+        id: layoutNode.id,
+        position: layoutNode.position,
+        draggable: layoutNode.draggable,
+        selectable: layoutNode.kind === 'content',
+        zIndex: layoutNode.kind === 'group' ? 0 : layoutNode.kind === 'lane' ? 1 : 2,
+        style: { width: layoutNode.width, height: layoutNode.height },
+        ...(layoutNode.parentId ? { parentId: layoutNode.parentId, extent: 'parent' as const } : {}),
+      };
+
+      if (layoutNode.kind === 'floor') {
+        const floor = architectureModel.floors.find(candidate => candidate.id === layoutNode.id);
+        const rooms = (layoutNode.regionIds ?? [])
+          .map(regionId => regionById.get(regionId))
+          .filter((region): region is ArchitectureRegion => Boolean(region))
+          .map(roomPreview);
+        const data: ArchitectureFloorData = {
+          floorLabel: floor?.label ?? 'ARCHITECTURE FLOOR',
+          title: architectureModel.mode === 'lifecycle' ? '产品生命周期层' : '产品能力模块层',
+          rooms,
+          mode: architectureModel.mode,
+          onOpenRoom: openRegion,
+        };
+        return { ...base, type: 'architectureFloor', data: data as unknown as Record<string, unknown> };
+      }
+
+      if (layoutNode.kind === 'roof' || layoutNode.kind === 'foyer' || layoutNode.kind === 'foundation' || layoutNode.kind === 'annex') {
+        const region = layoutNode.regionId ? regionById.get(layoutNode.regionId) : undefined;
+        const chips = region
+          ? region.previewNodeIds.map(nodeId => nodeById.get(nodeId)?.title).filter((title): title is string => Boolean(title))
+          : [];
+        const rootSummary = architectureModel.rootNodeId
+          ? nodeById.get(architectureModel.rootNodeId)?.summary ?? ''
+          : '';
+        const kind = layoutNode.kind;
+        const data: ArchitectureCapData = {
+          kind,
+          eyebrow: kind === 'roof'
+            ? 'PRODUCT FACTORY / ARCHITECTURE'
+            : kind === 'foyer'
+              ? 'ENTRY / STAGE 00'
+              : kind === 'foundation'
+                ? 'FOUNDATION / GOVERNANCE'
+                : 'ANNEX / REFERENCES',
+          title: region?.title ?? (kind === 'foundation' ? '共享基础与治理' : '附属模块'),
+          summary: kind === 'roof' ? rootSummary || document.version : region?.summary ?? '',
+          chips,
+          roomId: region && kind !== 'roof' ? region.id : undefined,
+          onOpenRoom: openRegion,
+        };
+        return { ...base, type: 'architectureCap', data: data as unknown as Record<string, unknown> };
+      }
+
+      if (layoutNode.kind === 'group') {
+        const region = layoutNode.regionId ? regionById.get(layoutNode.regionId) : undefined;
+        return {
+          ...base,
+          type: 'architectureRoomGroup',
+          data: {
+            eyebrow: region ? roomPreview(region).eyebrow : 'FOCUSED ROOM',
+            title: region?.title ?? '聚焦房间',
+            summary: region?.summary ?? '',
+            resourceCount: region?.resources.count ?? 0,
+          },
+        };
+      }
+
+      if (layoutNode.kind === 'lane') {
+        const region = layoutNode.regionId ? regionById.get(layoutNode.regionId) : undefined;
+        const summary = region?.trackSummaries.find(candidate => candidate.track === layoutNode.track);
+        return {
+          ...base,
+          type: 'architectureLane',
+          data: {
+            track: layoutNode.track ?? 'shared',
+            title: layoutNode.track === 'vibe' ? '快速产品路径' : layoutNode.track === 'pro' ? '工程化路径' : '共享核心',
+            count: summary?.count ?? 0,
+          },
+        };
+      }
+
+      if (layoutNode.kind === 'resource') {
+        const region = layoutNode.regionId ? regionById.get(layoutNode.regionId) : undefined;
+        return {
+          ...base,
+          type: 'architectureResource',
+          data: {
+            title: '工具、Prompt 与引用',
+            count: region?.resources.count ?? 0,
+            previews: region?.resources.previews.map(preview => preview.title) ?? [],
+          },
+        };
+      }
+
+      const docNode = layoutNode.nodeId ? nodeById.get(layoutNode.nodeId) : undefined;
+      if (!docNode) {
+        return { ...base, type: 'architectureResource', data: { title: '内容不可用', count: 0, previews: [] } };
+      }
+      return { ...base, type: 'cardNode', data: docNodeData(docNode) };
+    });
+  }, [architectureModel, document.version, layout.nodes, nodeById, openRegion, regionById]);
+
+  const projectedEdges = useMemo<Edge[]>(() => layout.edges.map(edge => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    sourceHandle: 'top-out',
+    targetHandle: 'bottom-in',
+    type: 'smoothstep',
+    animated: false,
+    style: { stroke: '#355C45', strokeWidth: 2, opacity: 0.66 },
+  })), [layout.edges]);
+
+  useEffect(() => {
+    const matchingRestoredState = restoredState
+      ? restoreCanvasState(restoredState, identity)
+      : null;
+    const positions = matchingRestoredState && sameCanvasView(matchingRestoredState.view, canvasView)
+      ? matchingRestoredState.nodePositions
+      : {};
+    setNodes(projectedNodes.map(node => ({
+      ...node,
+      position: node.draggable && positions[node.id] ? positions[node.id] : node.position,
+    })));
+    setEdges(projectedEdges);
+
+    const timeout = window.setTimeout(() => {
+      if (
+        matchingRestoredState?.lastSaved
+        && !restoredViewportRef.current
+        && sameCanvasView(matchingRestoredState.view, canvasView)
+      ) {
+        restoredViewportRef.current = true;
+        setViewport(matchingRestoredState.viewport);
+        return;
+      }
+      if (autoFitRef.current) fitView({ padding: canvasView.kind === 'overview' ? 0.08 : 0.12, duration: 420 });
+    }, 80);
+    return () => window.clearTimeout(timeout);
+  }, [canvasView, fitView, identity, projectedEdges, projectedNodes, restoredState, setEdges, setNodes, setViewport]);
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
+  useEffect(() => {
+    const updateProfile = () => {
+      const width = window.innerWidth;
+      setLayoutProfile(width >= 768 && width <= 1100 ? 'tablet' : 'desktop');
+      setIsMobileViewport(width < 768);
+    };
+    updateProfile();
+    window.addEventListener('resize', updateProfile);
+    return () => window.removeEventListener('resize', updateProfile);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
+    const generation = ++restoreGenerationRef.current;
+    restoredViewportRef.current = false;
+    setRestoredState(null);
     const restore = async () => {
-      // Try server first
+      let state: CanvasState | null = null;
       try {
-        const resp = await fetch(`/api/canvas-state?documentId=${document.id}`);
-        if (resp.ok) {
-          const state: CanvasState = await resp.json();
-          if (state.nodePositions && Object.keys(state.nodePositions).length > 0) {
-            if (cancelled) return;
-            setNodes(prev => prev.map(n => ({
-              ...n,
-              position: state.nodePositions[n.id] || n.position,
-            })));
-            if (state.viewport) setViewport(state.viewport);
-            return; // server state is more authoritative
-          }
+        const raw = localStorage.getItem(getCanvasStateLocalStorageKey(document.id));
+        state = raw ? restoreCanvasState(JSON.parse(raw), identity) : null;
+      } catch {
+        state = null;
+      }
+      if (!state) {
+        try {
+          const response = await fetch(`/api/canvas-state?documentId=${document.id}`);
+          if (response.ok) state = restoreCanvasState(await response.json(), identity);
+        } catch {
+          state = null;
         }
-      } catch { /* server unavailable — fall through to localStorage */ }
-
-      // Fallback: localStorage
+      }
+      // A save can occur while the server GET is in flight. Re-read local v2
+      // state before applying the response so the newest browser action wins.
       try {
-        const saved = localStorage.getItem(`doccas-${document.id}`);
-        if (saved) {
-          const state: CanvasState = JSON.parse(saved);
-          if (state.nodePositions) {
-            if (cancelled) return;
-            setNodes(prev => prev.map(n => ({
-              ...n,
-              position: state.nodePositions[n.id] || n.position,
-            })));
-            if (state.viewport) setViewport(state.viewport);
-          }
-        }
+        const freshRaw = localStorage.getItem(getCanvasStateLocalStorageKey(document.id));
+        const freshLocal = freshRaw ? restoreCanvasState(JSON.parse(freshRaw), identity) : null;
+        if (freshLocal) state = freshLocal;
       } catch {}
+      try { localStorage.removeItem(getLegacyCanvasStateLocalStorageKey(document.id)); } catch {}
+      if (cancelled || generation !== restoreGenerationRef.current || !state) return;
+      if (state.view.kind === 'focused-region' && !regionById.has(state.view.regionId)) return;
+      setRestoredState(state);
+      if (state.expandedNodes.includes('tracks:v2')) {
+        setExpandedTracks(new Set(state.expandedNodes.filter(value => /^stage[1-8]-(?:vibe|pro)$/.test(value))));
+      }
+      setCanvasView(state.view);
+      setActiveStage(state.view.kind === 'focused-region' ? regionById.get(state.view.regionId)?.stageNumber ?? null : null);
+      setLastSavedTime(state.lastSaved ?? '');
     };
     restore();
     return () => { cancelled = true; };
-  }, [document.id, setNodes, setViewport]);
+  }, [document.id, identity, regionById]);
 
-  // Reset canonical graph state only when the server-provided document changes.
   useEffect(() => {
     setDocNodes(document.nodes);
-    setEdges(document.edges.map(docEdgeToFlowEdge));
+    setDocEdges(document.edges);
     setSelectedNodeId(null);
     setDetailOpen(false);
-  }, [document.id, document.nodes, document.edges, setEdges]);
+  }, [document.edges, document.id, document.nodes]);
 
-  // Project canonical DocNodes into React Flow while preserving local positions/selection.
-  useEffect(() => {
-    setNodes(previous => {
-      const priorById = new Map(previous.map(node => [node.id, node]));
-      return docNodes.map(docNode => {
-        const projected = docNodeToFlowNode(docNode);
-        const prior = priorById.get(docNode.id);
-        return prior ? {
-          ...projected,
-          position: prior.position,
-          selected: prior.selected,
-          hidden: prior.hidden,
-        } : projected;
-      });
-    });
-  }, [docNodes, setNodes]);
-
-  // When expandedTracks changes, hide/show the corresponding track nodes AND their edges
-  useEffect(() => {
-    const hiddenNodeIds = new Set<string>();
-    setNodes(prev => prev.map(n => {
-      const dn = docNodes.find(d => d.id === n.id);
-      if (!dn) return n;
-      const hidden = isDocNodeHiddenByTrack(dn, expandedTracks);
-      if (hidden) hiddenNodeIds.add(n.id);
-      return { ...n, hidden };
-    }));
-    // Also hide edges connected to hidden track nodes
-    setEdges(prev => prev.map(e => ({
-      ...e,
-      hidden: hiddenNodeIds.has(e.source) || hiddenNodeIds.has(e.target),
-    })));
-  }, [expandedTracks, docNodes, setNodes, setEdges]);
-
-  // Re-fit only after an explicit track-toggle state change, never on mount or node saves.
-  useEffect(() => {
-    if (previousExpandedTracksRef.current === expandedTracks) return;
-    previousExpandedTracksRef.current = expandedTracks;
-    const timeout = setTimeout(() => fitView({ padding: 0.3, duration: 300 }), 400);
-    return () => clearTimeout(timeout);
-  }, [expandedTracks, fitView]);
-
-  // Node click handler — skip hidden nodes
-  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
-    if (node.hidden) return; // don't open detail for track-collapsed nodes
-    const docNode = docNodes.find(n => n.id === node.id);
-    if (docNode) {
-      setSelectedNodeId(docNode.id);
-      setDetailOpen(true);
-    }
-  }, [docNodes]);
-
-  // Save canvas state with retry + localStorage fallback
   const saveCanvasState = useCallback(async () => {
-    const state: CanvasState = {
-      documentId: document.id,
+    restoreGenerationRef.current += 1;
+    const now = new Date().toISOString();
+    const state = createCanvasState(identity, {
+      view: canvasView,
       viewport: getViewport(),
-      expandedNodes: nodes.filter(n => !n.hidden).map(n => n.id),
-      nodePositions: Object.fromEntries(nodes.map(n => [n.id, n.position])),
-      lastSaved: new Date().toISOString(),
-    };
-
-    // localStorage fallback — always succeeds
-    try { localStorage.setItem(`doccas-${document.id}`, JSON.stringify(state)); } catch {}
+      expandedNodes: ['tracks:v2', ...[...expandedTracks].sort()],
+      nodePositions: canvasView.kind === 'focused-region'
+        ? Object.fromEntries(nodes.filter(node => node.draggable).map(node => [node.id, node.position]))
+        : {},
+      lastSaved: now,
+    });
+    setRestoredState(state);
+    try {
+      localStorage.setItem(getCanvasStateLocalStorageKey(document.id), JSON.stringify(state));
+      localStorage.removeItem(getLegacyCanvasStateLocalStorageKey(document.id));
+    } catch {}
 
     if (!writePolicy.writable) {
       setSaveStatus('saved');
-      setLastSavedTime(new Date().toISOString());
+      setLastSavedTime(now);
       setSaveError('');
       return;
     }
 
-    // Server persist with retry
     setSaveStatus('saving');
     let success = false;
     for (let attempt = 0; attempt < 3 && !success; attempt++) {
       try {
         const token = sessionStorage.getItem('doccanvas-admin-token') || '';
-        const resp = await fetch('/api/canvas-state', {
+        const response = await fetch('/api/canvas-state', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(token ? { 'X-DocCanvas-Token': token } : {}) },
           body: JSON.stringify(state),
         });
-        if (!resp.ok) throw new Error(await resp.text());
+        if (!response.ok) throw new Error(await response.text());
         success = true;
       } catch (error) {
-        if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        if (attempt < 2) await new Promise(resolve => window.setTimeout(resolve, 500 * (attempt + 1)));
         if (attempt === 2) setSaveError(error instanceof Error ? error.message : '保存失败。');
       }
     }
     if (success) {
       setSaveStatus('saved');
-      setLastSavedTime(new Date().toISOString());
+      setLastSavedTime(now);
+      setSaveError('');
     } else {
       setSaveStatus('error');
       setSaveError('无法保存到服务器。状态已保存在浏览器本地。');
     }
-  }, [document.id, getViewport, nodes, writePolicy.writable]);
+  }, [canvasView, document.id, expandedTracks, getViewport, identity, nodes, writePolicy.writable]);
+
+  const resetAutoLayout = useCallback(async () => {
+    restoreGenerationRef.current += 1;
+    const reset = resetCanvasState(identity);
+    try {
+      localStorage.setItem(getCanvasStateLocalStorageKey(document.id), JSON.stringify(reset));
+      localStorage.removeItem(getLegacyCanvasStateLocalStorageKey(document.id));
+    } catch {}
+    setRestoredState(null);
+    restoredViewportRef.current = true;
+    autoFitRef.current = true;
+    setCanvasView({ kind: 'overview' });
+    setActiveStage(null);
+    setExpandedTracks(defaultExpandedTracks());
+    if (writePolicy.writable) {
+      try {
+        const token = sessionStorage.getItem('doccanvas-admin-token') || '';
+        const response = await fetch('/api/canvas-state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(token ? { 'X-DocCanvas-Token': token } : {}) },
+          body: JSON.stringify(reset),
+        });
+        if (!response.ok) throw new Error(await response.text());
+      } catch {
+        setSaveStatus('error');
+        setSaveError('自动布局已在本地重置，但服务器状态未更新。');
+      }
+    }
+  }, [document.id, identity, writePolicy.writable]);
+
+  const fitCanvas = useCallback(() => {
+    autoFitRef.current = true;
+    fitView({ padding: canvasView.kind === 'overview' ? 0.08 : 0.12, duration: 360 });
+  }, [canvasView.kind, fitView]);
+
+  const fitCanvasFromUser = useCallback(() => {
+    restoreGenerationRef.current += 1;
+    fitCanvas();
+  }, [fitCanvas]);
 
   const exportMarkdown = useCallback(() => {
     window.location.href = `/api/export/markdown?documentId=${document.id}`;
   }, [document.id]);
 
   const exportPng = useCallback(async () => {
-    setExportStatus('正在导出 PNG...');
+    if (exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+    setExportStatus('正在导出暖白全景 PNG...');
+    const originalView = canvasView;
+    const expectedLayout = computeArchitectureLayout(architectureModel, {
+      view: { kind: 'overview' },
+      profile: 'desktop',
+    });
     try {
-      const viewportEl = window.document.querySelector('.react-flow__viewport') as HTMLElement | null;
-      if (!viewportEl) throw new Error('未找到画布视图。');
-
-      const visibleNodes = nodes.filter(n => !n.hidden);
+      setExportingPanorama(true);
+      if (originalView.kind === 'focused-region') {
+        setCanvasView({ kind: 'overview' });
+      }
+      const viewportElement = window.document.querySelector('.desktop-architecture-canvas .react-flow__viewport') as HTMLElement | null;
+      if (!viewportElement) throw new Error('未找到桌面全景视图。');
+      let projectionReady = false;
+      for (let attempt = 0; attempt < 60; attempt++) {
+        await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
+        const currentById = new Map(nodesRef.current.map(node => [node.id, node]));
+        const modelMatches = nodesRef.current.length === expectedLayout.nodes.length
+          && expectedLayout.nodes.every(expected => {
+            const current = currentById.get(expected.id);
+            return current
+              && current.position.x === expected.position.x
+              && current.position.y === expected.position.y
+              && current.style?.width === expected.width
+              && current.style?.height === expected.height;
+          });
+        if (!modelMatches) continue;
+        const domIds = new Set(Array.from(
+          viewportElement.querySelectorAll<HTMLElement>('.react-flow__node[data-id]'),
+        ).map(element => element.dataset.id));
+        if (expectedLayout.nodes.every(node => domIds.has(node.id))) {
+          projectionReady = true;
+          await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
+          break;
+        }
+      }
+      if (!projectionReady) throw new Error('建筑全景投影未在时限内稳定。');
+      const visibleNodes = nodesRef.current.filter(node => !node.hidden);
       if (visibleNodes.length === 0) throw new Error('当前没有可导出的节点。');
-
       const bounds = getNodesBounds(visibleNodes);
       const imageWidth = Math.ceil(bounds.width + 240);
       const imageHeight = Math.ceil(bounds.height + 240);
       const pixelRatio = selectPngPixelRatio(imageWidth, imageHeight);
-      if (pixelRatio === null) {
-        throw new Error('画布尺寸过大，请先折叠部分轨道后再导出。');
-      }
-
+      if (pixelRatio === null) throw new Error('建筑全景尺寸超过安全导出预算。');
       const viewport = getViewportForBounds(bounds, imageWidth, imageHeight, 0.1, 2, 0.08);
-      const dataUrl = await toPng(viewportEl, {
-        backgroundColor: '#0a0a0f',
+      const dataUrl = await toPng(viewportElement, {
+        backgroundColor: '#F8FBF0',
         width: imageWidth,
         height: imageHeight,
         pixelRatio,
@@ -349,195 +646,235 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         },
       });
       const link = window.document.createElement('a');
-      link.download = `${document.id}-canvas.png`;
+      link.download = `${document.id}-architecture.png`;
       link.href = dataUrl;
       link.click();
       setExportStatus('PNG 已导出。');
       window.setTimeout(() => setExportStatus(''), 2200);
     } catch (error) {
       setExportStatus(error instanceof Error ? error.message : 'PNG 导出未完成。');
+    } finally {
+      exportInFlightRef.current = false;
+      setExportingPanorama(false);
+      if (originalView.kind === 'focused-region') {
+        setCanvasView(originalView);
+      }
+      autoFitRef.current = true;
     }
-  }, [document.id, nodes]);
+  }, [architectureModel, canvasView, document.id]);
 
-  const stageNodesByNumber = useMemo(() => {
-    return docNodes.reduce<Record<number, DocNode>>((acc, node) => {
-      if (isStageHeading(node) && node.stageNumber !== undefined) {
-        acc[node.stageNumber] = node;
-      }
-      return acc;
-    }, {});
-  }, [docNodes]);
+  const openDocNode = useCallback((nodeId: string) => {
+    const node = nodeById.get(nodeId);
+    if (!node) return;
+    setSelectedNodeId(nodeId);
+    setDetailOpen(true);
+  }, [nodeById]);
 
-  // Keyboard shortcuts
+  const navigateToNode = useCallback((nodeId: string) => {
+    const regionId = architectureModel.nodeRegionId[nodeId];
+    if (regionId) openRegion(regionId);
+    openDocNode(nodeId);
+  }, [architectureModel.nodeRegionId, openDocNode, openRegion]);
+
+  const stageRegions = useMemo(() => architectureModel.regions
+    .filter(region => region.stageNumber !== undefined)
+    .sort((left, right) => (left.stageNumber ?? 0) - (right.stageNumber ?? 0)), [architectureModel.regions]);
+  const fileMetadata = (document as FileBackedDocument)._file;
+
+  const mobileFloors = useMemo<MobileArchitectureFloor[]>(() => {
+    const floors = architectureModel.floors.map(floor => ({
+      id: floor.id,
+      label: floor.label,
+      title: architectureModel.mode === 'lifecycle' ? '生命周期层' : '能力模块层',
+      rooms: floor.regionIds
+        .map(regionId => regionById.get(regionId))
+        .filter((region): region is ArchitectureRegion => Boolean(region))
+        .map(roomPreview),
+    }));
+    const baseRegions = architectureModel.regions.filter(region =>
+      region.kind === 'foyer' || region.kind === 'foundation' || region.kind === 'annex',
+    );
+    return baseRegions.length === 0 ? floors : [{
+      id: 'mobile:foundation',
+      label: 'GROUND / FOUNDATION',
+      title: '入口、基础与附属',
+      rooms: baseRegions.map(roomPreview),
+    }, ...floors];
+  }, [architectureModel.floors, architectureModel.mode, architectureModel.regions, regionById]);
+
+  const mobileFocused = focusedRegion ? {
+    room: roomPreview(focusedRegion),
+    nodesByTrack: Object.fromEntries((['vibe', 'shared', 'pro'] as const).map(track => {
+      const nodeIds = focusedRegion.trackSummaries.find(summary => summary.track === track)?.nodeIds ?? [];
+      return [track, nodeIds.map(nodeId => nodeById.get(nodeId)).filter((node): node is DocNode => Boolean(node))];
+    })) as Record<'vibe' | 'shared' | 'pro', DocNode[]>,
+    resourceCount: focusedRegion.resources.count,
+  } : undefined;
+
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && detailOpen) { setDetailOpen(false); return; }
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        if (!detailOpen) { e.preventDefault(); saveCanvasState(); }
-        return; // if detailOpen, let the browser handle textarea save
+    const handler = (event: KeyboardEvent) => {
+      if (exportInFlightRef.current) return;
+      if (event.key === 'Escape' && detailOpen) { setDetailOpen(false); return; }
+      if (event.key === 'Escape' && canvasView.kind === 'focused-region') { returnToOverview(); return; }
+      if ((event.metaKey || event.ctrlKey) && event.key === 's') {
+        if (!detailOpen) { event.preventDefault(); saveCanvasState(); }
+        return;
       }
-      if (e.key === 'f' && !e.metaKey && !e.ctrlKey) { fitView({ padding: 0.3, duration: 300 }); return; }
-      if (e.key === '0' && !e.metaKey) { fitView({ padding: 0.3, duration: 300 }); return; }
+      if ((event.key === 'f' || event.key === '0') && !event.metaKey && !event.ctrlKey) fitCanvasFromUser();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [detailOpen, fitView, saveCanvasState]);
+  }, [canvasView.kind, detailOpen, fitCanvasFromUser, returnToOverview, saveCanvasState]);
 
-  // Window resize → re-fit
   useEffect(() => {
-    const handler = () => { fitView({ padding: 0.3, duration: 200 }); };
-    window.addEventListener('resize', handler);
-    return () => window.removeEventListener('resize', handler);
-  }, [fitView]);
+    const element = canvasShellRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      if (autoFitRef.current) window.setTimeout(() => fitCanvas(), 80);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [fitCanvas]);
 
   return (
-    <div className="w-full h-[100dvh] bg-zinc-950">
-      <ReactFlow
+    <div
+      ref={canvasShellRef}
+      className={`architecture-canvas-shell ${canvasView.kind === 'focused-region' ? 'is-focused-region' : ''} ${exportingPanorama ? 'is-exporting-panorama' : ''}`}
+    >
+      <header className="architecture-desktop-header">
+        <div className="architecture-desktop-header__identity">
+          <FileText aria-hidden="true" />
+          <span>
+            <strong>{document.title}</strong>
+            <small>
+              {architectureModel.mode === 'lifecycle' ? '生命周期建筑' : '模块建筑'} · {architectureModel.regions.filter(region => region.kind === 'room').length} 个房间 · {docNodes.length} 个源节点
+              {fileMetadata ? ` · ${formatDisplayDate(fileMetadata.mtime)} · ${formatDisplayInteger(fileMetadata.bytes)} 字符` : ''}
+            </small>
+          </span>
+          {exportStatus && <em className="architecture-export-status"><ShieldAlert aria-hidden="true" />{exportStatus}</em>}
+        </div>
+
+        {stageRegions.length > 0 && (
+          <nav className="architecture-stage-nav" aria-label="阶段导航">
+            {stageRegions.map(region => (
+              <button
+                type="button"
+                key={region.id}
+                onClick={() => openRegion(region.id)}
+                className={activeStage === region.stageNumber ? 'is-active' : ''}
+                aria-label={`进入阶段 ${region.stageNumber}`}
+              >
+                {region.stageNumber}
+              </button>
+            ))}
+          </nav>
+        )}
+
+        <nav className="architecture-toolbar" aria-label="画布工具栏">
+          <Link href="/" aria-label="返回工作台" title="返回工作台"><Home aria-hidden="true" />工作台</Link>
+          {canvasView.kind === 'focused-region' && (
+            <button type="button" title="返回全景" onClick={returnToOverview}><ArrowLeft aria-hidden="true" />全景</button>
+          )}
+          {activeStage && (
+            <>
+              {(['vibe', 'pro'] as const).map(track => {
+                const trackId = `stage${activeStage}-${track}`;
+                const expanded = expandedTracks.has(trackId);
+                return (
+                  <button
+                    type="button"
+                    key={track}
+                    className={`architecture-toolbar__track architecture-toolbar__track--${track} ${expanded ? 'is-active' : ''}`}
+                    aria-pressed={expanded}
+                    title={`${expanded ? '收起' : '展开'} ${track === 'vibe' ? 'Vibe' : 'Pro'} 轨道`}
+                    onClick={() => setExpandedTracks(previous => {
+                      restoreGenerationRef.current += 1;
+                      const next = new Set(previous);
+                      next.has(trackId) ? next.delete(trackId) : next.add(trackId);
+                      return next;
+                    })}
+                  >
+                    {track === 'vibe' ? 'Vibe' : 'Pro'}
+                  </button>
+                );
+              })}
+            </>
+          )}
+          <button type="button" title="搜索" onClick={() => setSearchRequest(value => value + 1)}><Search aria-hidden="true" />搜索</button>
+          <button type="button" title="适应画布" onClick={fitCanvasFromUser}><RotateCcw aria-hidden="true" />适应</button>
+          <button type="button" title="重置自动布局" onClick={resetAutoLayout}><RotateCcw aria-hidden="true" />重置</button>
+          <button type="button" title="保存画布状态" onClick={saveCanvasState}><Save aria-hidden="true" />保存</button>
+          <button type="button" title="导出建筑全景 PNG" disabled={exportingPanorama} onClick={exportPng}><ImageDown aria-hidden="true" />PNG</button>
+          <button type="button" title="导出 Markdown" className="architecture-toolbar__primary" onClick={exportMarkdown}><Download aria-hidden="true" />Markdown</button>
+        </nav>
+      </header>
+
+      <div className="desktop-architecture-canvas" aria-hidden={isMobileViewport}>
+        <ReactFlow
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
-          onNodeClick={onNodeClick}
+          onNodeClick={(_event, node) => {
+            const docNodeId = typeof node.data?.docNodeId === 'string' ? node.data.docNodeId : undefined;
+            if (docNodeId) openDocNode(docNodeId);
+          }}
           onNodeDragStop={saveCanvasState}
+          onMoveStart={event => {
+            if (event) {
+              restoreGenerationRef.current += 1;
+              autoFitRef.current = false;
+            }
+          }}
           nodeTypes={nodeTypes}
           fitView
-          fitViewOptions={{ padding: 0.3 }}
-          minZoom={0.1}
-          maxZoom={2}
-          defaultViewport={{ x: 200, y: 50, zoom: 0.6 }}
+          fitViewOptions={{ padding: 0.08 }}
+          minZoom={0.2}
+          maxZoom={2.5}
+          defaultViewport={{ x: 80, y: 40, zoom: 0.6 }}
           snapToGrid
-          snapGrid={[20, 20]}
+          snapGrid={[16, 16]}
           proOptions={{ hideAttribution: true }}
         >
-          <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#27272a" />
-          <Controls className="!hidden sm:!flex !bg-zinc-900 !border-zinc-700 !text-zinc-300" />
+          <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="#DDE7D8" />
+          <Controls
+            className="!hidden sm:!flex"
+            onZoomIn={() => { restoreGenerationRef.current += 1; }}
+            onZoomOut={() => { restoreGenerationRef.current += 1; }}
+            onFitView={() => { restoreGenerationRef.current += 1; }}
+          />
           <MiniMap
-            nodeStrokeWidth={2}
-            nodeColor={(n) => (n.data as any)?.color || '#71717a'}
-            maskColor="rgba(0,0,0,0.7)"
-            className="!hidden sm:!block !bg-zinc-900 !border-zinc-700"
+            nodeStrokeWidth={1.5}
+            nodeColor={node => {
+              const track = node.data?.track;
+              if (track === 'vibe') return '#147D78';
+              if (track === 'pro') return '#9A5B12';
+              if (track === 'shared') return '#4F5F9B';
+              return '#91A28B';
+            }}
+            maskColor="rgba(248,251,240,0.74)"
+            className="!hidden sm:!block"
           />
 
-          <Panel position="top-right" className="!top-auto !bottom-3 sm:!top-4 sm:!bottom-auto flex max-w-[calc(100vw-1rem)] flex-wrap items-center justify-end gap-2 overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/92 p-2 shadow-xl backdrop-blur sm:overflow-visible">
-            <Link href="/" className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs text-zinc-300 transition-colors hover:bg-zinc-800" aria-label="返回工作台">
-              <Home className="h-3.5 w-3.5" />
-              工作台
-            </Link>
-            <button
-              onClick={() => fitView({ padding: 0.3, duration: 300 })}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs text-zinc-300 transition-colors hover:bg-zinc-800"
-              aria-label="重置视图"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              视图
-            </button>
-            <button
-              onClick={saveCanvasState}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs text-zinc-300 transition-colors hover:bg-zinc-800"
-              aria-label="保存画布状态"
-            >
-              <Save className="h-3.5 w-3.5" />
-              保存
-            </button>
-            <button
-              onClick={exportPng}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs text-zinc-300 transition-colors hover:bg-zinc-800"
-              aria-label="导出 PNG"
-            >
-              <ImageDown className="h-3.5 w-3.5" />
-              PNG
-            </button>
-            <button
-              onClick={exportMarkdown}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-indigo-600 px-2.5 text-xs font-medium text-white transition-colors hover:bg-indigo-500"
-              aria-label="导出 Markdown"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Markdown
-            </button>
-          </Panel>
-
-          {/* Info panel */}
-          <Panel position="top-left" className="max-w-[calc(100vw-2rem)] bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-lg px-4 py-3 text-sm sm:max-w-xs">
-            <div className="flex items-center gap-2 mb-2">
-              <FileText className="h-3.5 w-3.5 text-indigo-300" />
-              <span className="font-semibold text-zinc-200 truncate">{document.title}</span>
-            </div>
-            <div className="text-zinc-500 text-xs space-y-0.5">
-              <div>{Object.keys(stageNodesByNumber).length} 个阶段 · {docNodes.length} 个节点 · {document.edges.filter(e => e.type === 'flow').length} 条主干连线</div>
-              <div>轨道: Vibe / Pro · {document.edges.filter(e => e.type === 'expansion' || e.type === 'reference').length} 个工具引用</div>
-              {(document as any)._file && (
-                <div className="text-zinc-600 mt-1 pt-1 border-t border-zinc-800">
-                  文件: {formatDisplayDate((document as any)._file.mtime)} · {formatDisplayInteger((document as any)._file.bytes)} 字符
-                </div>
-              )}
-              <div className="text-zinc-600">
-                <kbd className="text-[10px] px-1 py-0.5 rounded bg-zinc-800 font-mono">Ctrl+K</kbd> 搜索 · <kbd className="text-[10px] px-1 py-0.5 rounded bg-zinc-800 font-mono">0</kbd> 重置视图
-              </div>
-              {exportStatus && (
-                <div className="mt-1 flex items-start gap-1.5 text-indigo-300">
-                  <ShieldAlert className="mt-0.5 h-3 w-3 shrink-0" />
-                  <span>{exportStatus}</span>
-                </div>
-              )}
-            </div>
-          </Panel>
-
-          {/* Stage navigator */}
-          <Panel position="top-center" className="hidden gap-1.5 sm:flex">
-            {[0, 1, 2, 3, 4, 5, 6, 7, 8].map(stage => {
-              const stageNode = stageNodesByNumber[stage];
-              const hasContent = stageNode !== undefined;
-              const labels: Record<number, string> = { [0]: '⓪', 1: '①', 2: '②', 3: '③', 4: '④', 5: '⑤', 6: '⑥', 7: '⑦', 8: '⑧' };
-              return (
-                <button
-                  key={stage}
-                  disabled={!hasContent}
-                  onClick={() => {
-                    if (stageNode) {
-                      const targetNode = nodes.find(n => n.id === stageNode.id);
-                      if (targetNode) {
-                        setActiveStage(stage);
-                        setNodes(nds => nds.map(n => ({ ...n, selected: n.id === targetNode.id })));
-                        fitView({ nodes: [{ id: targetNode.id }], duration: 400, padding: 0.4 });
-                      }
-                    }
-                  }}
-                  className={`w-8 h-8 rounded-full text-xs font-medium transition-all
-                    ${activeStage === stage
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/30 scale-110'
-                      : hasContent
-                        ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 cursor-pointer'
-                        : 'bg-zinc-900 text-zinc-700 cursor-default'}`}
-                >
-                  {labels[stage] || stage}
-                </button>
-              );
-            })}
-          </Panel>
-          <Panel position="bottom-left" className="hidden sm:block">
-            <TrackToggle
-              nodes={docNodes}
-              stageNodes={docNodes.filter(isStageHeading)}
-              expandedTracks={expandedTracks}
-              onToggleTrack={(trackId) => {
-                if (trackId === 'all-expand') {
-                  const all = new Set<string>();
-                  for (let s = 1; s <= 8; s++) { all.add(`stage${s}-vibe`); all.add(`stage${s}-pro`); }
-                  setExpandedTracks(all);
-                } else if (trackId === 'all-collapse') {
-                  setExpandedTracks(new Set());
-                } else {
-                  setExpandedTracks(prev => {
-                    const next = new Set(prev);
-                    next.has(trackId) ? next.delete(trackId) : next.add(trackId);
-                    return next;
-                  });
-                }
-              }}
-            />
-          </Panel>
         </ReactFlow>
+      </div>
+
+      <div className="mobile-canvas-toolbar">
+        <Link href="/" aria-label="返回工作台"><Home aria-hidden="true" /></Link>
+        <button type="button" onClick={() => setSearchRequest(value => value + 1)} aria-label="搜索"><Search aria-hidden="true" /></button>
+        <button type="button" onClick={saveCanvasState} aria-label="保存画布状态"><Save aria-hidden="true" /></button>
+        <button type="button" disabled={exportingPanorama} onClick={exportPng} aria-label="导出 PNG"><ImageDown aria-hidden="true" /></button>
+        <button type="button" onClick={exportMarkdown} aria-label="导出 Markdown"><Download aria-hidden="true" /></button>
+      </div>
+      <MobileArchitectureView
+        documentTitle={document.title}
+        version={document.version}
+        floors={mobileFloors}
+        focused={mobileFocused}
+        onOpenRoom={openRegion}
+        onBack={returnToOverview}
+        onOpenNode={openDocNode}
+      />
 
       {selectedNode && (
         <NodeDetailSheet
@@ -545,12 +882,11 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
           open={detailOpen}
           readOnly={!writePolicy.writable}
           onClose={() => setDetailOpen(false)}
-          onMarkDeleted={async (nodeId: string) => {
+          onMarkDeleted={async nodeId => {
             if (!writePolicy.writable) return;
-            // Mark and hide from this view; preserve the Markdown section for recovery.
             const recoveryContent = `[SOFT-DELETED: ${selectedNode.title}]\n\n> 此节点已通过 DocCanvas 画布标记为删除。如需恢复，删除本段并重新加载画布。\n\n${selectedNode.content}`;
             const token = sessionStorage.getItem('doccanvas-admin-token') || '';
-            const resp = await fetch('/api/documents', {
+            const response = await fetch('/api/documents', {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json', ...(token ? { 'X-DocCanvas-Token': token } : {}) },
               body: JSON.stringify({
@@ -562,24 +898,24 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
                 content: recoveryContent,
               }),
             });
-            if (!resp.ok) {
-              const message = await responseMessage(resp);
+            if (!response.ok) {
+              const message = await responseMessage(response);
               setSaveStatus('error');
               setSaveError(message);
               throw new Error(message);
             }
-            setDocNodes(prev => removeDocNodeFromView(prev, nodeId));
-            setEdges(prev => prev.filter(e => e.source !== nodeId && e.target !== nodeId));
+            setDocNodes(previous => removeDocNodeFromView(previous, nodeId));
+            setDocEdges(previous => previous.filter(edge => edge.source !== nodeId && edge.target !== nodeId));
             setSelectedNodeId(null);
             setSaveStatus('saved');
             setLastSavedTime(new Date().toISOString());
             setDetailOpen(false);
           }}
-          onSave={async (heading: string, updatedContent: string) => {
+          onSave={async (heading, updatedContent) => {
             if (!writePolicy.writable) return;
             setSaveStatus('saving');
             const token = sessionStorage.getItem('doccanvas-admin-token') || '';
-            const resp = await fetch('/api/documents', {
+            const response = await fetch('/api/documents', {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json', ...(token ? { 'X-DocCanvas-Token': token } : {}) },
               body: JSON.stringify({
@@ -591,15 +927,14 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
                 content: updatedContent,
               }),
             });
-            if (!resp.ok) {
-              const message = await responseMessage(resp);
+            if (!response.ok) {
+              const message = await responseMessage(response);
               setSaveStatus('error');
               setSaveError(message);
               throw new Error(message);
             }
-            const result = await resp.json().catch(() => ({}));
-
-            setDocNodes(prev => updateDocNodeAfterSave(prev, {
+            const result = await response.json().catch(() => ({}));
+            setDocNodes(previous => updateDocNodeAfterSave(previous, {
               id: selectedNode.id,
               title: heading,
               content: updatedContent,
@@ -612,25 +947,8 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         />
       )}
 
-      <SearchPanel
-        nodes={docNodes}
-        onNavigateToNode={(nodeId) => {
-          const targetNode = nodes.find(n => n.id === nodeId);
-          if (targetNode) {
-            setNodes(nds => nds.map(n => ({ ...n, selected: n.id === nodeId })));
-            fitView({ nodes: [{ id: nodeId }], duration: 400, padding: 0.4 });
-            // Auto-open detail sheet for search results
-            const docNode = docNodes.find(dn => dn.id === nodeId);
-            if (docNode) { setSelectedNodeId(docNode.id); setDetailOpen(true); }
-          }
-        }}
-      />
-
-      <SaveIndicator
-        status={saveStatus}
-        lastSaved={lastSavedTime}
-        errorMessage={saveError}
-      />
+      <SearchPanel nodes={docNodes} onNavigateToNode={navigateToNode} openRequest={searchRequest} />
+      <SaveIndicator status={saveStatus} lastSaved={lastSavedTime} errorMessage={saveError} />
     </div>
   );
 }

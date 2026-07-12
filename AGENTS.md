@@ -48,13 +48,15 @@ tests/                       契约、API、文件锁、客户端状态、部署
 
 ```text
 Markdown -> extractMarkdownSections() / parseMarkdownToGraph()
-  -> computeLayout() -> canonical docNodes -> React Flow projection
+  -> buildArchitectureViewModel() -> computeArchitectureLayout() -> React Flow projection
   -> PATCH /api/documents -> write guard -> strict CAS -> atomic file replace
   -> POST /api/canvas-state -> bounded schema -> atomic JSON replace
 ```
 
 - 仅 React Flow 交互子树使用 `'use client'`；App Router 页面和 route handler 保持 server 边界。
 - `DocNode.content` 必须是源章节 raw Markdown body；`contentBlocks` 只用于展示，禁止反序列化后写回。
+- 建筑布局只把 `metadata.isStageHeading === true` 识别为显式阶段；普通节点继承的 `stageNumber` 只用于阶段归属，不能生成阶段主干。
+- 总览使用确定性建筑网格；工具、Prompt 与引用由 `ArchitectureViewModel.resources` 统一聚合，不得由 desktop/mobile 各自重新分类。
 - 带 `hash` 的保存只允许唯一精确命中；stale/重复/歧义返回 conflict（API 409），禁止按 heading 猜测。
 - 不带 `hash` 的 legacy 保存只允许唯一 `originalHeading` 命中；不得 append 新章节兜底。
 - 文件锁协议只声明同主机、本地 POSIX 文件系统支持；不得外推到 NFS、网络盘或多主机写入。
