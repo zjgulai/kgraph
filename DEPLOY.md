@@ -1,6 +1,6 @@
 ---
 title: DocCanvas 腾讯云部署入口
-status: production_live_readonly_acceptance_in_progress
+status: new_l2_candidate_ready_production_acceptance_in_progress
 updated: 2026-07-12
 target_host: 101.34.52.232
 target_domain: kgraph.lute-tlz-dddd.top
@@ -15,7 +15,9 @@ production_status: live_readonly_release_20260712T031453Z_1579d67cfd78
 
 隔离 `doccanvas-kgraph` app/edge、dedicated TLS、首次公网 activation，以及 Mode B live rollback/re-activation 均已在对应授权窗完成。当前公网运行 readonly release `20260712T031453Z-1579d67cfd78`（Git commit `1579d67cfd7893dafeac85f2780e6adaed2e7424`）；本轮未执行新的远端写入。
 
-Readonly 节点详情修复与 PNG 自适应倍率修复现已收敛到 runtime commit `4b65c461fe9da54cda6041d2691618912ae55816`；本地 typecheck、94/94 tests、8/8 routes 与真实浏览器 PNG 导出通过。此前 `fd5804e` Linux candidate/final bundle 已被该源码取代，旧 checksum 必须保持失效，禁止上传或执行。下一步是从新的精确 Git 状态重新构建、扫描和封包；取得新的远端 app-only 部署授权前，生产继续运行 `1579d67` release。
+新 L2 candidate `20260712T100007Z-2a9ba490ccf0` 已从 source Git snapshot `2a9ba490ccf0b1bc1c7c1cf39b247bc1bd04ee56` 构建；runtime allowlist commit 为 `4b65c461fe9da54cda6041d2691618912ae55816`。Image/index ID `sha256:7ec0c80c...a2b6ea`、archive SHA `99867603...e8d03`；shared/image 94/94 tests、8/8 routes、readonly image/Compose smoke、npm audit、Scout SBOM/CVE 与 candidate checksum 均通过。
+
+该候选只允许标记为 `L2 allowed-with-label`：当前 builder 的 image revision 是包含随机绝对临时路径的不可复现 context hash，不是 Git SHA；补充 provenance sidecar 未嵌入或签名到 image。新 image 的 Playwright session 又连续三次卡在启动阶段，因此浏览器 PNG E2E 仍未验证。新的 final deploy bundle 尚未组装，旧 `fd5804e` bundle 继续保持失效；取得单独的 app-only 部署授权前，生产继续运行 `1579d67` release。
 
 ## 当前部署决策
 
