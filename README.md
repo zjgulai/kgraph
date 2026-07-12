@@ -1,7 +1,7 @@
 ---
 title: DocCanvas
-status: production-candidate
-updated: 2026-07-11
+status: production-live-readonly-acceptance-in-progress
+updated: 2026-07-12
 ---
 
 # DocCanvas
@@ -51,7 +51,7 @@ shared Nginx :443
 - [deploy/tencent/README.md](./deploy/tencent/README.md)：Linux image 与 Compose 候选包说明。
 - [deploy/tencent/PRODUCTION-RUNBOOK.md](./deploy/tencent/PRODUCTION-RUNBOOK.md)：服务器熟悉、activation、E2E、回滚与验收计划。
 
-当前仓库提供已在本地验证的生产候选，不等于腾讯云已部署或公网已验收。私钥、`.env`、本地计划、测试证据目录和生成状态均由 `.gitignore` / `.dockerignore` 排除。
+腾讯云当前已运行 readonly 版本，但完整生产验收仍在进行；源码验证、本地 candidate、生产部署与最终验收必须继续分层表述，不能互相替代。当前 release、下一候选与授权边界以 [DEPLOY.md](./DEPLOY.md) 为准。私钥、`.env`、本地计划、测试证据目录和生成状态均由 `.gitignore` / `.dockerignore` 排除。
 
 ## 常用命令
 

@@ -6,7 +6,7 @@ DocCanvas 是基于 Next.js 15 与 React Flow 的 Markdown 知识画布。`docum
 
 - 本地测试、候选包 smoke、云端部署、生产验收是不同证据层级，不得互相替代。
 - 默认生产模式为 `readonly`；除非用户单独授权，不执行腾讯云、PM2、Nginx、DNS、TLS、防火墙、`current` 切换或真实写入。
-- 当前 Git 仓库为 `main` 且尚无 commit/remote；不得把 untracked 基线称为 diff、commit 或可回滚版本。
+- 当前 Git 仓库已使用 `main` 与 remote；每次仍须重新核验 branch、HEAD、upstream 与工作树，禁止把 dirty working tree、未推送 commit 或旧 candidate 冒充可追溯 release。
 
 ## 启动顺序
 
@@ -73,7 +73,7 @@ Markdown -> extractMarkdownSections() / parseMarkdownToGraph()
 
 ## 发布拓扑与验证顺序
 
-对目标 `101.34.52.232` / `kgraph.lute-tlz-dddd.top`，以下 PM2 拓扑已被 `.kiro/plan/tencent-cloud-docker-deployment-plan.md` 覆盖：该主机必须使用 `doccanvas-kgraph` 独立 Compose project、app internal network、edge-only shared network、无 host port 与 dedicated TLS。不得执行 PM2 路线、不得安装/重启 Docker daemon、不得修改 `daemon.json`、不得 prune 或让 app 直接加入 `lighthouse_ai_video_net`。当前 activation 未授权，`production unchanged`。
+对目标 `101.34.52.232` / `kgraph.lute-tlz-dddd.top`，以下 PM2 拓扑已被 `.kiro/plan/tencent-cloud-docker-deployment-plan.md` 覆盖：该主机必须使用 `doccanvas-kgraph` 独立 Compose project、app internal network、edge-only shared network、无 host port 与 dedicated TLS。不得执行 PM2 路线、不得安装/重启 Docker daemon、不得修改 `daemon.json`、不得 prune 或让 app 直接加入 `lighthouse_ai_video_net`。公网 readonly activation 已有历史执行证据，但任何新上传、image load、app/edge replacement、shared Nginx 变更或 owner 写入都需要新的明确授权；旧授权不得复用。
 
 以下内容仅保留为非该主机的历史候选发布契约：
 
