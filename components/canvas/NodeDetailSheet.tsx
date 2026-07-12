@@ -6,18 +6,19 @@
  *           view tool references, and mark a section for deletion without erasing it.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Save, Copy, Trash2, Code2, MessageSquare, Wrench, ExternalLink, AlertTriangle } from 'lucide-react';
+import { X, Save, Copy, Trash2, Code2, MessageSquare, Wrench, ExternalLink, AlertTriangle, Lock } from 'lucide-react';
 import type { DocNode } from '@/lib/parser/types';
 
 interface Props {
   node: DocNode;
   open: boolean;
+  readOnly?: boolean;
   onClose: () => void;
   onSave?: (heading: string, content: string) => void | Promise<void>;
   onMarkDeleted?: (nodeId: string) => void | Promise<void>;
 }
 
-export function NodeDetailSheet({ node, open, onClose, onSave, onMarkDeleted }: Props) {
+export function NodeDetailSheet({ node, open, readOnly = false, onClose, onSave, onMarkDeleted }: Props) {
   const [content, setContent] = useState(node.content);
   const [title, setTitle] = useState(node.title);
   const [copied, setCopied] = useState(false);
@@ -66,6 +67,7 @@ export function NodeDetailSheet({ node, open, onClose, onSave, onMarkDeleted }: 
   }, []);
 
   const handleSave = useCallback(async () => {
+    if (readOnly) return;
     setBusy(true);
     setActionError('');
     try {
@@ -77,9 +79,10 @@ export function NodeDetailSheet({ node, open, onClose, onSave, onMarkDeleted }: 
     } finally {
       setBusy(false);
     }
-  }, [content, onSave, title]);
+  }, [content, onSave, readOnly, title]);
 
   const handleMarkDeleted = useCallback(async () => {
+    if (readOnly) return;
     setBusy(true);
     setActionError('');
     try {
@@ -88,7 +91,7 @@ export function NodeDetailSheet({ node, open, onClose, onSave, onMarkDeleted }: 
       setActionError(error instanceof Error ? error.message : '标记失败，请重试。');
       setBusy(false);
     }
-  }, [node.id, onMarkDeleted]);
+  }, [node.id, onMarkDeleted, readOnly]);
 
   // Keyboard shortcuts — stable handler, registered once
   useEffect(() => {
@@ -138,11 +141,11 @@ export function NodeDetailSheet({ node, open, onClose, onSave, onMarkDeleted }: 
           <div className="flex items-center gap-2">
             <button
               onClick={handleSave}
-              disabled={busy}
+              disabled={busy || readOnly}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${saved ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'}`}
             >
-              <Save className="w-3.5 h-3.5 inline mr-1" />
-              {busy ? '保存中' : saved ? '已保存' : '保存'}
+              {readOnly ? <Lock className="w-3.5 h-3.5 inline mr-1" /> : <Save className="w-3.5 h-3.5 inline mr-1" />}
+              {readOnly ? '只读' : busy ? '保存中' : saved ? '已保存' : '保存'}
             </button>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500">
               <X className="w-4 h-4" />
@@ -154,8 +157,9 @@ export function NodeDetailSheet({ node, open, onClose, onSave, onMarkDeleted }: 
           {/* Title (editable) */}
           <input
             value={title}
+            readOnly={readOnly}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full bg-transparent text-lg font-semibold text-zinc-100 border-none outline-none focus:ring-0 placeholder-zinc-600"
+            className="w-full bg-transparent text-lg font-semibold text-zinc-100 border-none outline-none focus:ring-0 placeholder-zinc-600 read-only:cursor-default"
           />
           {actionError && (
             <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
@@ -168,9 +172,10 @@ export function NodeDetailSheet({ node, open, onClose, onSave, onMarkDeleted }: 
             <label className="text-xs text-zinc-500 mb-1.5 block">内容 (Markdown)</label>
             <textarea
               value={content}
+              readOnly={readOnly}
               onChange={(e) => handleContentChange(e.target.value)}
               rows={textareaRows}
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2.5 text-sm text-zinc-300 font-mono leading-relaxed resize-y focus:outline-none focus:border-zinc-600 placeholder-zinc-700"
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2.5 text-sm text-zinc-300 font-mono leading-relaxed resize-y focus:outline-none focus:border-zinc-600 placeholder-zinc-700 read-only:cursor-default"
             />
           </div>
 
@@ -269,7 +274,11 @@ export function NodeDetailSheet({ node, open, onClose, onSave, onMarkDeleted }: 
 
           {/* Actions */}
           <div className="pt-2 border-t border-zinc-800 flex items-center justify-between">
-            {confirmMarkDeleted ? (
+            {readOnly ? (
+              <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                <Lock className="h-3.5 w-3.5" /> 生产只读
+              </div>
+            ) : confirmMarkDeleted ? (
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
                 <span className="text-xs text-amber-400">

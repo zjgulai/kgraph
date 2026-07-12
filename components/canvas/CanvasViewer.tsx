@@ -545,8 +545,10 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         <NodeDetailSheet
           node={selectedNode}
           open={detailOpen}
+          readOnly={!writePolicy.writable}
           onClose={() => setDetailOpen(false)}
           onMarkDeleted={async (nodeId: string) => {
+            if (!writePolicy.writable) return;
             // Mark and hide from this view; preserve the Markdown section for recovery.
             const recoveryContent = `[SOFT-DELETED: ${selectedNode.title}]\n\n> 此节点已通过 DocCanvas 画布标记为删除。如需恢复，删除本段并重新加载画布。\n\n${selectedNode.content}`;
             const token = sessionStorage.getItem('doccanvas-admin-token') || '';
@@ -576,6 +578,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
             setDetailOpen(false);
           }}
           onSave={async (heading: string, updatedContent: string) => {
+            if (!writePolicy.writable) return;
             setSaveStatus('saving');
             const token = sessionStorage.getItem('doccanvas-admin-token') || '';
             const resp = await fetch('/api/documents', {
