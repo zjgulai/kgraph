@@ -8,6 +8,7 @@ const viewer = readFileSync(resolve(root, 'components/canvas/CanvasViewer.tsx'),
 const detailSheet = readFileSync(resolve(root, 'components/canvas/NodeDetailSheet.tsx'), 'utf8');
 const mobileView = readFileSync(resolve(root, 'components/canvas/MobileArchitectureView.tsx'), 'utf8');
 const page = readFileSync(resolve(root, 'app/canvas/[documentId]/page.tsx'), 'utf8');
+const css = readFileSync(resolve(root, 'app/globals.css'), 'utf8');
 
 test('canvas receives the server write policy and readonly saves stay browser-local', () => {
   assert.match(page, /writePolicy=\{getWritePolicy\(\)\}/);
@@ -64,10 +65,23 @@ test('mobile focus uses the view-model resource aggregation instead of reclassif
 });
 
 test('PNG export always projects the architecture overview at the highest safe pixel ratio', () => {
+  assert.doesNotMatch(viewer, /import\s*\{[^}]*getNodesBounds[^}]*\}\s*from '@xyflow\/react'/s);
+  assert.match(viewer, /const \{ fitView, getNodesBounds, getViewport, setViewport \} = useReactFlow\(\)/);
   assert.match(viewer, /setCanvasView\(\{ kind: 'overview' \}\)/);
   assert.match(viewer, /link\.download = `\$\{document\.id\}-architecture\.png`/);
   assert.match(viewer, /if \(exportInFlightRef\.current\) return/);
   assert.match(viewer, /if \(!projectionReady\) throw new Error\('建筑全景投影未在时限内稳定。'\)/);
+  assert.match(viewer, /isPngPaintSurfaceReady\(/);
+  assert.match(viewer, /shellExporting: canvasShellRef\.current\?\.classList\.contains\('is-exporting-panorama'\) === true/);
+  assert.match(viewer, /projectionDeadline = window\.performance\.now\(\) \+ 3_000/);
+  assert.match(viewer, /restoreGenerationRef\.current \+= 1;\s*setExportStatus\('正在导出暖白全景 PNG\.\.\.'\)/);
+  assert.match(viewer, /domIds\.size === expectedLayout\.nodes\.length/);
+  assert.match(viewer, /domEdgeIds\.size === expectedLayout\.edges\.length/);
+  assert.match(viewer, /if \(projectionMatches\(\)\) \{\s*await waitForPaintTick\(\);\s*if \(projectionMatches\(\)\)/);
+  assert.match(viewer, /inert=\{exportingPanorama\}/);
+  assert.match(viewer, /className="architecture-export-overlay" role="status"/);
+  assert.match(css, /\.architecture-export-overlay\s*\{[^}]*background:\s*#f8fbf0/s);
+  assert.match(css, /is-focused-region\.is-exporting-panorama \.desktop-architecture-canvas\s*\{[^}]*display:\s*block/s);
   assert.match(viewer, /selectPngPixelRatio\(imageWidth, imageHeight\)/);
   assert.match(viewer, /pixelRatio,/);
   assert.doesNotMatch(viewer, /pixelRatio:\s*PNG_PIXEL_RATIO/);

@@ -204,6 +204,29 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visib
 .architecture-desktop-header__identity small { margin-top: 2px; overflow: hidden; color: #637064; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .architecture-desktop-header__identity .architecture-export-status { margin-left: 8px; }
 
+.architecture-export-overlay {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #f8fbf0;
+  color: #355c45;
+}
+.architecture-export-overlay span {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #d5dfd0;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px 18px;
+  box-shadow: 0 10px 28px rgba(53, 92, 69, 0.1);
+}
+.architecture-export-overlay svg { width: 18px; }
+.architecture-export-overlay strong { font-size: 13px; }
+
 .architecture-handle,
 .architecture-card-handle {
   width: 8px !important;
@@ -674,6 +697,17 @@ button.architecture-cap__button:hover { background: rgba(240, 245, 234, 0.6); }
     display: none;
   }
 
+  .architecture-canvas-shell.is-focused-region.is-exporting-panorama .desktop-architecture-canvas {
+    position: fixed;
+    top: 0;
+    left: -10000px;
+    display: block;
+    width: 2400px;
+    height: 1800px;
+    visibility: visible;
+    pointer-events: none;
+  }
+
   .architecture-canvas-shell.is-focused-region .mobile-architecture--focused {
     display: block;
     grid-row: 2;
@@ -839,6 +873,7 @@ button.architecture-cap__button:hover { background: rgba(240, 245, 234, 0.6); }
   }
 
   .architecture-canvas-shell.is-exporting-panorama .desktop-architecture-canvas {
+    display: block;
     visibility: visible;
   }
 

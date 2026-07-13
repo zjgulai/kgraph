@@ -6,7 +6,6 @@ import {
   Background,
   BackgroundVariant,
   Controls,
-  getNodesBounds,
   getViewportForBounds,
   MiniMap,
   ReactFlow,
@@ -58,7 +57,7 @@ import {
   removeDocNodeFromView,
   updateDocNodeAfterSave,
 } from '@/lib/canvas/doc-node-state';
-import { selectPngPixelRatio } from '@/lib/canvas/png-export';
+import { isPngPaintSurfaceReady, selectPngPixelRatio } from '@/lib/canvas/png-export';
 import {
   ArchitectureCapNode,
   ArchitectureFloorNode,
@@ -219,7 +218,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
   const [exportingPanorama, setExportingPanorama] = useState(false);
   const [restoredState, setRestoredState] = useState<CanvasState | null>(null);
   const [searchRequest, setSearchRequest] = useState(0);
-  const { fitView, getViewport, setViewport } = useReactFlow();
+  const { fitView, getNodesBounds, getViewport, setViewport } = useReactFlow();
   const autoFitRef = useRef(true);
   const restoredViewportRef = useRef(false);
   const canvasShellRef = useRef<HTMLDivElement>(null);
@@ -589,6 +588,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
   const exportPng = useCallback(async () => {
     if (exportInFlightRef.current) return;
     exportInFlightRef.current = true;
+    restoreGenerationRef.current += 1;
     setExportStatus('正在导出暖白全景 PNG...');
     const originalView = canvasView;
     const expectedLayout = computeArchitectureLayout(architectureModel, {
@@ -602,9 +602,42 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
       }
       const viewportElement = window.document.querySelector('.desktop-architecture-canvas .react-flow__viewport') as HTMLElement | null;
       if (!viewportElement) throw new Error('未找到桌面全景视图。');
+      const desktopCanvas = viewportElement.closest<HTMLElement>('.desktop-architecture-canvas');
+      if (!desktopCanvas) throw new Error('未找到桌面全景容器。');
+      const paintSurfaceReady = () => {
+        const sampleNode = viewportElement.querySelector<HTMLElement>('.react-flow__node[data-id]');
+        if (!sampleNode) return false;
+        const canvasRect = desktopCanvas.getBoundingClientRect();
+        const viewportRect = viewportElement.getBoundingClientRect();
+        const nodeRect = sampleNode.getBoundingClientRect();
+        return isPngPaintSurfaceReady({
+          shellExporting: canvasShellRef.current?.classList.contains('is-exporting-panorama') === true,
+          canvasDisplay: window.getComputedStyle(desktopCanvas).display,
+          canvasVisibility: window.getComputedStyle(desktopCanvas).visibility,
+          viewportVisibility: window.getComputedStyle(viewportElement).visibility,
+          nodeVisibility: window.getComputedStyle(sampleNode).visibility,
+          canvasWidth: canvasRect.width,
+          canvasHeight: canvasRect.height,
+          viewportWidth: viewportRect.width,
+          viewportHeight: viewportRect.height,
+          nodeWidth: nodeRect.width,
+          nodeHeight: nodeRect.height,
+        });
+      };
+      const waitForPaintTick = () => new Promise<void>(resolve => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeout);
+          resolve();
+        };
+        const timeout = window.setTimeout(finish, 50);
+        window.requestAnimationFrame(finish);
+      });
       let projectionReady = false;
-      for (let attempt = 0; attempt < 60; attempt++) {
-        await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
+      const projectionDeadline = window.performance.now() + 3_000;
+      const projectionMatches = () => {
         const currentById = new Map(nodesRef.current.map(node => [node.id, node]));
         const modelMatches = nodesRef.current.length === expectedLayout.nodes.length
           && expectedLayout.nodes.every(expected => {
@@ -615,14 +648,27 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
               && current.style?.width === expected.width
               && current.style?.height === expected.height;
           });
-        if (!modelMatches) continue;
+        if (!modelMatches) return false;
         const domIds = new Set(Array.from(
           viewportElement.querySelectorAll<HTMLElement>('.react-flow__node[data-id]'),
         ).map(element => element.dataset.id));
-        if (expectedLayout.nodes.every(node => domIds.has(node.id))) {
-          projectionReady = true;
-          await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
-          break;
+        const domEdgeIds = new Set(Array.from(
+          viewportElement.querySelectorAll<HTMLElement>('.react-flow__edge[data-id]'),
+        ).map(element => element.dataset.id));
+        return domIds.size === expectedLayout.nodes.length
+          && domEdgeIds.size === expectedLayout.edges.length
+          && expectedLayout.nodes.every(node => domIds.has(node.id))
+          && expectedLayout.edges.every(edge => domEdgeIds.has(edge.id))
+          && paintSurfaceReady();
+      };
+      for (let attempt = 0; attempt < 120 && window.performance.now() < projectionDeadline; attempt++) {
+        await waitForPaintTick();
+        if (projectionMatches()) {
+          await waitForPaintTick();
+          if (projectionMatches()) {
+            projectionReady = true;
+            break;
+          }
         }
       }
       if (!projectionReady) throw new Error('建筑全景投影未在时限内稳定。');
@@ -642,6 +688,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         style: {
           width: `${imageWidth}px`,
           height: `${imageHeight}px`,
+          visibility: 'visible',
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
         },
       });
@@ -737,10 +784,12 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
   }, [fitCanvas]);
 
   return (
-    <div
-      ref={canvasShellRef}
-      className={`architecture-canvas-shell ${canvasView.kind === 'focused-region' ? 'is-focused-region' : ''} ${exportingPanorama ? 'is-exporting-panorama' : ''}`}
-    >
+    <>
+      <div
+        ref={canvasShellRef}
+        inert={exportingPanorama}
+        className={`architecture-canvas-shell ${canvasView.kind === 'focused-region' ? 'is-focused-region' : ''} ${exportingPanorama ? 'is-exporting-panorama' : ''}`}
+      >
       <header className="architecture-desktop-header">
         <div className="architecture-desktop-header__identity">
           <FileText aria-hidden="true" />
@@ -809,7 +858,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         </nav>
       </header>
 
-      <div className="desktop-architecture-canvas" aria-hidden={isMobileViewport}>
+      <div className="desktop-architecture-canvas" aria-hidden={isMobileViewport || exportingPanorama}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -949,6 +998,13 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
 
       <SearchPanel nodes={docNodes} onNavigateToNode={navigateToNode} openRequest={searchRequest} />
       <SaveIndicator status={saveStatus} lastSaved={lastSavedTime} errorMessage={saveError} />
-    </div>
+      </div>
+
+      {exportingPanorama && (
+        <div className="architecture-export-overlay" role="status" aria-live="polite">
+          <span><ImageDown aria-hidden="true" /><strong>正在生成建筑全景</strong></span>
+        </div>
+      )}
+    </>
   );
 }
