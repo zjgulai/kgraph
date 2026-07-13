@@ -35,11 +35,7 @@ services:
         aliases:
           - doccanvas-kgraph-app-internal
     healthcheck:
-      test: ["CMD", "/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3200/api/health').then(async r=>{const b=await r.json();if(!r.ok||b?.writePolicy?.mode!=='readonly')process.exit(1)}).catch(()=>process.exit(1))"]
-      interval: 15s
-      timeout: 5s
-      start_period: 30s
-      retries: 4
+      disable: true
     logging:
       driver: local
       options:
@@ -70,14 +66,19 @@ services:
     stop_grace_period: 10s
     depends_on:
       app:
-        condition: service_healthy
+        condition: service_started
     networks:
       internal: {}
       proxy:
         aliases:
           - doccanvas-kgraph-edge
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- --header='Host: kgraph.lute-tlz-dddd.top' http://127.0.0.1:8080/_edge_health | grep -q '\"mode\":\"readonly\"'"]
+      test:
+        - CMD-SHELL
+        - >-
+          body="$$(wget -qO- --header='Host: kgraph.lute-tlz-dddd.top' http://127.0.0.1:8080/_edge_health)" &&
+          printf '%s' "$$body" | grep -q '"status":"ok"' &&
+          printf '%s' "$$body" | grep -q '"mode":"readonly"'
       interval: 15s
       timeout: 5s
       start_period: 15s

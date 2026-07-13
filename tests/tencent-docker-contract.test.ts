@@ -37,7 +37,8 @@ test('Docker build is digest-pinned, allowlisted, multi-stage and non-root', () 
   assert.match(dockerfile, /\.next\/static/);
   assert.match(dockerfile, /USER 10001:10001/);
   assert.match(dockerfile, /DOCCANVAS_WRITE_MODE=readonly/);
-  assert.match(dockerfile, /HEALTHCHECK/);
+  assert.match(dockerfile, /HEALTHCHECK NONE/);
+  assert.doesNotMatch(dockerfile, /HEALTHCHECK[^\n]*node|fetch\('http:\/\/127\.0\.0\.1:3200\/api\/health'/);
 });
 
 test('Docker context rejects secrets and generated state', () => {
@@ -64,6 +65,21 @@ test('Compose isolates app and edge without host ports or privilege', () => {
   assert.match(compose, /external:\s*true/);
   assert.match(compose, /doccanvas-kgraph-edge/);
   assert.match(compose, /doccanvas-kgraph-app-internal/);
+  assert.match(compose, /app:[\s\S]*?healthcheck:\s*\n\s*disable:\s*true[\s\S]*?edge:/);
+  assert.match(compose, /depends_on:\s*\n\s*app:\s*\n\s*condition:\s*service_started/);
+  assert.doesNotMatch(compose, /condition:\s*service_healthy|\/nodejs\/bin\/node/);
+});
+
+test('readonly image smoke waits explicitly for deep readiness without recurring app health', () => {
+  const script = read('scripts/tencent/verify-linux-image.sh');
+  assert.match(script, /docker exec[^\n]*\$CONTAINER_NAME[\s\S]*?\/api\/health/);
+  assert.match(script, /CONSECUTIVE_READY/);
+  assert.match(script, /CONSECUTIVE_READY[\s\S]*?-ge 2/);
+  assert.match(script, /\.Config\.Healthcheck/);
+  assert.match(script, /\.State\.Running/);
+  assert.match(script, /if \.State\.Health/);
+  assert.match(script, /docker logs --tail 80/);
+  assert.doesNotMatch(script, /\.State\.Health\.Status|== "healthy"/);
 });
 
 test('edge Nginx fails closed by Host and proxies deep app health through Docker DNS', () => {
@@ -76,6 +92,12 @@ test('edge Nginx fails closed by Host and proxies deep app health through Docker
   assert.match(edge, /http:\/\/doccanvas-kgraph-app-internal:3200/);
   assert.doesNotMatch(edge, /http:\/\/app:3200/);
   assert.match(edge, /proxy_pass \$app_upstream/);
+
+  const compose = read('deploy/tencent/compose.yaml');
+  assert.match(compose, /body="\$\$\(wget[^\n]*\/_edge_health\)" &&/);
+  assert.match(compose, /\"status\":\"ok\"/);
+  assert.match(compose, /\"mode\":\"readonly\"/);
+  assert.doesNotMatch(compose, /wget[^\n]*\/_edge_health\s*\|\s*grep/);
 });
 
 test('shared Nginx block uses current HTTP/2 syntax', () => {

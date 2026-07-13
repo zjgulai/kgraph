@@ -25,6 +25,8 @@ chmod -R a-w "$FIXTURE_ROOT"
 
 PLATFORM="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE_TAG")"
 [[ "$PLATFORM" == "linux/amd64" ]] || fail "unexpected image platform: $PLATFORM"
+IMAGE_HEALTHCHECK="$(docker image inspect --format '{{if .Config.Healthcheck}}{{json .Config.Healthcheck.Test}}{{else}}none{{end}}' "$IMAGE_TAG")"
+[[ "$IMAGE_HEALTHCHECK" == "none" || "$IMAGE_HEALTHCHECK" == '["NONE"]' ]] || fail "image contains an active healthcheck"
 docker run -d \
   --name "$CONTAINER_NAME" \
   --platform linux/amd64 \
@@ -40,13 +42,26 @@ docker run -d \
   --mount "type=bind,src=$FIXTURE_ROOT,dst=/data,readonly" \
   "$IMAGE_TAG" >/dev/null
 
+[[ "$(docker inspect --format '{{if .State.Health}}active{{else}}none{{end}}' "$CONTAINER_NAME")" == "none" ]] || fail "container has an active health monitor"
+CONSECUTIVE_READY=0
 for _ in $(seq 1 40); do
-  STATUS="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$CONTAINER_NAME")"
-  [[ "$STATUS" == "healthy" ]] && break
-  [[ "$STATUS" == "unhealthy" ]] && fail "container became unhealthy"
+  [[ "$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME")" == "true" ]] || fail "container stopped before readiness"
+  [[ "$(docker inspect --format '{{.RestartCount}}' "$CONTAINER_NAME")" == "0" ]] || fail "container restarted before readiness"
+  [[ "$(docker inspect --format '{{.State.OOMKilled}}' "$CONTAINER_NAME")" == "false" ]] || fail "container was OOM killed before readiness"
+  if docker exec "$CONTAINER_NAME" /nodejs/bin/node -e \
+    "fetch('http://127.0.0.1:3200/api/health').then(async r=>{const b=await r.json();if(!r.ok||b?.status!=='ok'||b?.writePolicy?.mode!=='readonly')process.exit(1)}).catch(()=>process.exit(1))" \
+    >/dev/null 2>&1; then
+    CONSECUTIVE_READY=$((CONSECUTIVE_READY + 1))
+    [[ "$CONSECUTIVE_READY" -ge 2 ]] && break
+  else
+    CONSECUTIVE_READY=0
+  fi
   sleep 1
 done
-[[ "$(docker inspect --format '{{.State.Health.Status}}' "$CONTAINER_NAME")" == "healthy" ]] || fail "health timeout"
+if [[ "$CONSECUTIVE_READY" -lt 2 ]]; then
+  docker logs --tail 80 "$CONTAINER_NAME" >&2 || true
+  fail "deep readiness timeout"
+fi
 
 docker exec -i "$CONTAINER_NAME" /nodejs/bin/node - <<'NODE'
 const checks = [
@@ -74,6 +89,7 @@ NODE
 
 [[ "$(docker inspect --format '{{.RestartCount}}' "$CONTAINER_NAME")" == "0" ]] || fail "container restarted"
 [[ "$(docker inspect --format '{{.State.OOMKilled}}' "$CONTAINER_NAME")" == "false" ]] || fail "container was OOM killed"
+[[ "$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME")" == "true" ]] || fail "container stopped"
 CONTAINER_DIFF="$(docker diff "$CONTAINER_NAME")"
 UNEXPECTED_DIFF="$(printf '%s\n' "$CONTAINER_DIFF" | grep -Ev '^(C /app|C /app/\.next|[ACD] /data)$|^[ACD] /(tmp|app/\.next/cache)(/|$)' || true)"
 [[ -z "$UNEXPECTED_DIFF" ]] || {

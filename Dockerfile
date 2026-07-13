@@ -45,6 +45,5 @@ COPY --from=builder --chown=10001:10001 /workspace/doccanvas/.next/standalone/.n
 
 USER 10001:10001
 EXPOSE 3200
-HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=4 \
-  CMD ["/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3200/api/health').then(async r=>{const b=await r.json();if(!r.ok||b?.status!=='ok'||b?.writePolicy?.mode!=='readonly')process.exit(1)}).catch(()=>process.exit(1))"]
+HEALTHCHECK NONE
 CMD ["server.js"]
