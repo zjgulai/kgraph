@@ -17,7 +17,10 @@ test('Tencent Docker package contains every local preflight artifact', () => {
     'deploy/tencent/README.md',
     'deploy/tencent/PRODUCTION-RUNBOOK.md',
     'scripts/tencent/build-linux-image.sh',
+    'scripts/tencent/render-runtime-script.sh',
+    'scripts/tencent/runtime-contract.sh',
     'scripts/tencent/verify-linux-image.sh',
+    'scripts/tencent/verify-runtime-contract-linux.sh',
   ]) {
     assert.equal(existsSync(resolve(root, path)), true, `missing ${path}`);
   }
@@ -75,11 +78,11 @@ test('readonly image smoke waits explicitly for deep readiness without recurring
   assert.match(script, /docker exec[^\n]*\$CONTAINER_NAME[\s\S]*?\/api\/health/);
   assert.match(script, /CONSECUTIVE_READY/);
   assert.match(script, /CONSECUTIVE_READY[\s\S]*?-ge 2/);
-  assert.match(script, /\.Config\.Healthcheck/);
+  assert.match(script, /doccanvas_docker_image_healthcheck_test/);
   assert.match(script, /\.State\.Running/);
-  assert.match(script, /if \.State\.Health/);
+  assert.match(script, /doccanvas_docker_health_status/);
   assert.match(script, /docker logs --tail 80/);
-  assert.doesNotMatch(script, /\.State\.Health\.Status|== "healthy"/);
+  assert.doesNotMatch(script, /if \.State\.Health|\.State\.Health\.Status|if \.Config\.Healthcheck|== "healthy"/);
 });
 
 test('edge Nginx fails closed by Host and proxies deep app health through Docker DNS', () => {

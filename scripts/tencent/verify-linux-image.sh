@@ -8,6 +8,10 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 IMAGE_TAG="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 DOCCANVAS_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+RUNTIME_CONTRACT="$SCRIPT_DIR/runtime-contract.sh"
+[[ -r "$RUNTIME_CONTRACT" ]] || fail "runtime contract helper is missing"
+# shellcheck source=scripts/tencent/runtime-contract.sh
+source "$RUNTIME_CONTRACT"
 FIXTURE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/doccanvas-image-fixture.XXXXXX")"
 CONTAINER_NAME="doccanvas-verify-$$"
 cleanup() {
@@ -25,7 +29,7 @@ chmod -R a-w "$FIXTURE_ROOT"
 
 PLATFORM="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE_TAG")"
 [[ "$PLATFORM" == "linux/amd64" ]] || fail "unexpected image platform: $PLATFORM"
-IMAGE_HEALTHCHECK="$(docker image inspect --format '{{if .Config.Healthcheck}}{{json .Config.Healthcheck.Test}}{{else}}none{{end}}' "$IMAGE_TAG")"
+IMAGE_HEALTHCHECK="$(doccanvas_docker_image_healthcheck_test "$IMAGE_TAG")"
 [[ "$IMAGE_HEALTHCHECK" == "none" || "$IMAGE_HEALTHCHECK" == '["NONE"]' ]] || fail "image contains an active healthcheck"
 docker run -d \
   --name "$CONTAINER_NAME" \
@@ -42,7 +46,7 @@ docker run -d \
   --mount "type=bind,src=$FIXTURE_ROOT,dst=/data,readonly" \
   "$IMAGE_TAG" >/dev/null
 
-[[ "$(docker inspect --format '{{if .State.Health}}active{{else}}none{{end}}' "$CONTAINER_NAME")" == "none" ]] || fail "container has an active health monitor"
+[[ "$(doccanvas_docker_health_status "$CONTAINER_NAME")" == "none" ]] || fail "container has an active health monitor"
 CONSECUTIVE_READY=0
 for _ in $(seq 1 40); do
   [[ "$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME")" == "true" ]] || fail "container stopped before readiness"
