@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: { template: '%s | DocCanvas ∞', default: 'DocCanvas — Playbook ∞ Canvas' },
+  title: { template: '%s | DocCanvas', default: 'DocCanvas | Playbook Architecture' },
   description: 'Interactive infinite canvas for your AI product Playbook documents',
   icons: { icon: '/favicon.svg' },
 };

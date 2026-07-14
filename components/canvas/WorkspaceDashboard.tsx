@@ -18,6 +18,7 @@ import {
 import type { DocumentEntry } from '@/lib/shared/document-registry';
 import { formatDisplayDateTime, formatDisplayInteger } from '@/lib/shared/display-format';
 import type { WritePolicy } from '@/lib/server/write-guard';
+import { cleanPresentationText } from '@/lib/canvas/presentation-text';
 
 interface Props {
   initialEntries: DocumentEntry[];
@@ -58,7 +59,9 @@ export function WorkspaceDashboard({ initialEntries, writePolicy }: Props) {
   };
 
   const createCanvas = async () => {
-    if (!title.trim()) {
+    const displayTitle = cleanPresentationText(title);
+    const displayDescription = cleanPresentationText(description);
+    if (!displayTitle) {
       setStatus('请输入画布标题。');
       return;
     }
@@ -71,7 +74,7 @@ export function WorkspaceDashboard({ initialEntries, writePolicy }: Props) {
           'Content-Type': 'application/json',
           ...(token ? { 'X-DocCanvas-Token': token } : {}),
         },
-        body: JSON.stringify({ title, description }),
+        body: JSON.stringify({ title: displayTitle, description: displayDescription }),
       });
       const payload = await resp.json();
       if (!resp.ok) throw new Error(payload.error || '创建画布未通过');
@@ -124,6 +127,9 @@ export function WorkspaceDashboard({ initialEntries, writePolicy }: Props) {
           <div className="grid gap-3">
             {entries.map(entry => {
               const Icon = iconByKind[entry.kind];
+              const displayTitle = cleanPresentationText(entry.title) || '未命名画布';
+              const displayDescription = cleanPresentationText(entry.description) || '暂无画布说明';
+              const displaySubtitle = cleanPresentationText(entry.subtitle);
               return (
                 <article
                   key={entry.id}
@@ -136,7 +142,7 @@ export function WorkspaceDashboard({ initialEntries, writePolicy }: Props) {
                       </div>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="truncate text-base font-semibold text-[#182019]">{entry.title}</h2>
+                          <h2 className="truncate text-base font-semibold text-[#182019]">{displayTitle}</h2>
                           <span className="rounded border border-[#D5DFD0] bg-[#F8FBF2] px-2 py-0.5 text-[11px] text-[#637064]">{entry.kind === 'builtin' ? '内置' : '用户'}</span>
                           {entry.exists ? (
                             <span className="inline-flex items-center gap-1 rounded bg-[#EAF3E8] px-2 py-0.5 text-[11px] font-medium text-[#2D6B47]">
@@ -148,9 +154,9 @@ export function WorkspaceDashboard({ initialEntries, writePolicy }: Props) {
                             </span>
                           )}
                         </div>
-                        <p className="mt-1 text-sm text-[#526053]">{entry.description}</p>
+                        <p className="mt-1 text-sm text-[#526053]">{displayDescription}</p>
                         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#637064]">
-                          <span>{entry.subtitle}</span>
+                          {displaySubtitle && <span>{displaySubtitle}</span>}
                           {entry.bytes !== undefined && <span>{formatDisplayInteger(entry.bytes)} bytes</span>}
                           {entry.mtime && <span>更新 {formatDisplayDateTime(entry.mtime)}</span>}
                         </div>
@@ -194,7 +200,7 @@ export function WorkspaceDashboard({ initialEntries, writePolicy }: Props) {
                 <input
                   name="canvas-title"
                   value={title}
-                  onChange={event => setTitle(event.target.value)}
+                  onChange={event => setTitle(cleanPresentationText(event.target.value))}
                   disabled={writesDisabled}
                   autoComplete="off"
                   className="mt-1 min-h-11 w-full rounded-md border border-[#C8D3C3] bg-[#F8FBF2] px-3 py-2 text-sm text-[#182019] outline-none transition-colors placeholder:text-[#637064] focus:border-[#4F5F9B] disabled:cursor-not-allowed disabled:bg-[#EEF2EA]"
@@ -206,7 +212,7 @@ export function WorkspaceDashboard({ initialEntries, writePolicy }: Props) {
                 <textarea
                   name="canvas-description"
                   value={description}
-                  onChange={event => setDescription(event.target.value)}
+                  onChange={event => setDescription(cleanPresentationText(event.target.value))}
                   disabled={writesDisabled}
                   autoComplete="off"
                   rows={4}

@@ -3,6 +3,7 @@ import { join } from 'path';
 import { z } from 'zod';
 import { atomicWriteJson, atomicWriteText, withFileLock } from '@/lib/server/file-ops';
 import { projectPath } from '@/lib/server/project-root';
+import { cleanPresentationText } from '@/lib/canvas/presentation-text';
 
 export type DocumentKind = 'builtin' | 'user';
 
@@ -126,7 +127,7 @@ export function assertKnownDocument(documentId: string): DocumentEntry {
 
 export async function createUserCanvas(input: { title: string; description?: string; slug?: string }) {
   const now = new Date().toISOString();
-  const title = input.title.trim();
+  const title = cleanPresentationText(input.title);
   if (!title) throw new Error('title required');
 
   return withFileLock(`${MANIFEST_PATH}.lock`, () => {
@@ -139,7 +140,7 @@ export async function createUserCanvas(input: { title: string; description?: str
 
     const path = `./${USER_CANVAS_DIR}/${id}.md`;
     const fullPath = projectPath(path);
-    const description = (input.description || '').trim();
+    const description = cleanPresentationText(input.description);
     const markdown = [
       `# ${title}`,
       '',

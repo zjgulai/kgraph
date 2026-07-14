@@ -83,6 +83,8 @@ test('PNG export always projects the architecture overview at the highest safe p
   assert.match(css, /\.architecture-export-overlay\s*\{[^}]*background:\s*#f8fbf0/s);
   assert.match(css, /is-focused-region\.is-exporting-panorama \.desktop-architecture-canvas\s*\{[^}]*display:\s*block/s);
   assert.match(viewer, /selectPngPixelRatio\(imageWidth, imageHeight\)/);
+  assert.match(viewer, /createTreeWalker\(root, window\.NodeFilter\.SHOW_TEXT\)/);
+  assert.match(viewer, /hasPresentationTextLeak/);
   assert.match(viewer, /pixelRatio,/);
   assert.doesNotMatch(viewer, /pixelRatio:\s*PNG_PIXEL_RATIO/);
 

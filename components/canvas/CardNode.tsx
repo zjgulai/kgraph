@@ -4,12 +4,14 @@
  *
  * Each node is a card showing: title, type badge, summary preview, tool/step/track indicators.
  */
+import React from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { ChevronRight, Code2, Wrench, MessageSquare, ArrowRight, Star, Blocks } from 'lucide-react';
 
-interface CardNodeData {
-  title: string;
-  summary: string;
+export interface CardNodeData {
+  displayTitle: string;
+  displaySummary: string;
+  sourceLabel: string;
   type: string;
   level: number;
   track?: 'vibe' | 'pro' | 'both';
@@ -66,7 +68,7 @@ export function CardNode({ data, selected }: NodeProps) {
           <div className="flex items-center gap-2 mb-1">
             {d.stageNumber !== undefined && d.stageNumber >= 0 && (
               <span className="shrink-0 rounded-md bg-[#EDF3E9] px-1.5 py-0.5 font-mono text-[10px] text-[#637064]">
-                §{d.stageNumber}
+                Stage {d.stageNumber}
               </span>
             )}
             {d.track && (
@@ -81,14 +83,14 @@ export function CardNode({ data, selected }: NodeProps) {
           </div>
 
           <h4 className={`line-clamp-2 font-semibold leading-snug text-[#182019] ${isStage ? 'text-sm' : 'text-xs'}`}>
-            {d.title}
+            {d.displayTitle}
           </h4>
         </div>
 
         {/* Summary */}
-        {d.summary && !isTool && (
+        {d.displaySummary && !isTool && (
           <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[#637064]">
-            {d.summary}
+            {d.displaySummary}
           </p>
         )}
 

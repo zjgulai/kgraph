@@ -173,7 +173,17 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visib
   background: var(--canvas-bg);
 }
 
+.architecture-canvas-shell.has-region-reader {
+  grid-template-columns: minmax(0, 1fr) 380px;
+}
+
+.architecture-desktop-header {
+  grid-column: 1 / -1;
+}
+
 .desktop-architecture-canvas {
+  grid-row: 2;
+  grid-column: 1;
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -330,6 +340,12 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visib
   box-shadow: 0 8px 20px rgba(35, 48, 32, 0.08);
 }
 
+.architecture-room.is-selected {
+  border-color: #4f5f9b;
+  background: #f2f3fa;
+  box-shadow: inset 4px 0 0 #4f5f9b, 0 8px 20px rgba(49, 62, 111, 0.1);
+}
+
 .architecture-room__index {
   position: absolute;
   inset: 0 auto 0 0;
@@ -368,6 +384,17 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visib
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.architecture-room__summary {
+  display: -webkit-box;
+  margin-top: 3px;
+  overflow: hidden;
+  color: #637064;
+  font-size: 10px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
 }
 
 .architecture-room__metrics {
@@ -436,6 +463,10 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visib
 }
 
 button.architecture-cap__button:hover { background: rgba(240, 245, 234, 0.6); }
+button.architecture-cap__button.is-selected {
+  background: #f2f3fa;
+  box-shadow: inset 4px 0 0 #4f5f9b;
+}
 .architecture-cap--roof .architecture-cap__button { padding-top: 30px; }
 
 .architecture-cap__icon {
@@ -660,20 +691,151 @@ button.architecture-cap__button:hover { background: rgba(240, 245, 234, 0.6); }
 .architecture-stage-nav button:hover { border-color: #aebda8; color: #182019; }
 .architecture-stage-nav button.is-active { border-color: #355c45; background: #355c45; color: #fff; }
 
+.architecture-region-reader {
+  position: relative;
+  z-index: 20;
+  grid-row: 2;
+  grid-column: 2;
+  min-width: 0;
+  overflow-y: auto;
+  border-left: 1px solid #d5dfd0;
+  background: #fff;
+  padding: 26px 24px 30px;
+  color: #182019;
+  box-shadow: -8px 0 24px rgba(35, 48, 32, 0.06);
+}
+.architecture-region-reader__header { padding-right: 48px; }
+.architecture-region-reader__close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d5dfd0;
+  border-radius: 6px;
+  background: #f8fbf2;
+  color: #637064;
+}
+.architecture-region-reader__close:hover { background: #edf3e9; color: #182019; }
+.architecture-region-reader__close svg { width: 17px; }
+.architecture-region-reader__eyebrow {
+  color: #4f5f9b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .1em;
+}
+.architecture-region-reader h2 { margin: 8px 0 0; font-size: 23px; line-height: 1.24; }
+.architecture-region-reader__header p { margin: 8px 0 0; color: #526053; font-size: 13px; line-height: 1.65; }
+.architecture-region-reader__sources,
+.architecture-region-reader__previews { margin-top: 22px; border-top: 1px solid #e2e8de; padding-top: 17px; }
+.architecture-region-reader__sources h3,
+.architecture-region-reader__previews h3 { display: flex; align-items: center; gap: 6px; margin: 0; color: #637064; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.architecture-region-reader__sources h3 svg { width: 14px; }
+.architecture-region-reader__sources ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.architecture-region-reader__sources li {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid #d5dfd0;
+  border-radius: 4px;
+  background: #f8fbf2;
+  padding: 5px 8px;
+  color: #526053;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.architecture-region-reader__previews ol { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.architecture-region-reader__previews li {
+  border: 1px solid #d5dfd0;
+  border-radius: 7px;
+  background: #f8fbf2;
+  padding: 11px 12px;
+}
+.architecture-region-reader__previews li.is-highlighted { border-color: #4f5f9b; box-shadow: inset 3px 0 0 #4f5f9b; }
+.architecture-region-reader__previews li strong { display: block; font-size: 12px; }
+.architecture-region-reader__previews li span { display: block; margin-top: 4px; color: #637064; font-size: 10px; line-height: 1.5; }
+.architecture-region-reader__previews li small { display: block; margin-top: 5px; color: #738075; font-size: 9px; }
+.architecture-region-reader__enter {
+  display: inline-flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 22px;
+  border: 1px solid #355c45;
+  border-radius: 6px;
+  background: #355c45;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+.architecture-region-reader__enter:hover { background: #294a36; }
+
+.safe-markdown { color: #263128; font-size: 14px; line-height: 1.75; overflow-wrap: anywhere; }
+.safe-markdown > :first-child { margin-top: 0; }
+.safe-markdown > :last-child { margin-bottom: 0; }
+.safe-markdown h1, .safe-markdown h2, .safe-markdown h3, .safe-markdown h4, .safe-markdown h5, .safe-markdown h6 {
+  margin: 1.5em 0 .55em;
+  color: #182019;
+  font-weight: 750;
+  line-height: 1.35;
+}
+.safe-markdown h1 { font-size: 1.5rem; }
+.safe-markdown h2 { font-size: 1.3rem; }
+.safe-markdown h3 { font-size: 1.12rem; }
+.safe-markdown p, .safe-markdown ul, .safe-markdown ol, .safe-markdown blockquote, .safe-markdown pre, .safe-markdown__table-scroll { margin: .8em 0; }
+.safe-markdown ul, .safe-markdown ol { padding-left: 1.4rem; }
+.safe-markdown li + li { margin-top: .35em; }
+.safe-markdown a { color: #4f5f9b; text-decoration: underline; text-underline-offset: 2px; }
+.safe-markdown code { border-radius: 4px; background: #edf3e9; padding: .12em .35em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+.safe-markdown pre { max-width: 100%; overflow-x: auto; border: 1px solid #d5dfd0; border-radius: 7px; background: #f3f6f0; padding: 13px; }
+.safe-markdown pre code { background: transparent; padding: 0; white-space: pre; }
+.safe-markdown blockquote { border-left: 3px solid #91a28b; background: #f8fbf2; padding: 8px 12px; color: #526053; }
+.safe-markdown hr { margin: 1.4em 0; border: 0; border-top: 1px solid #d5dfd0; }
+.safe-markdown__table-scroll { max-width: 100%; overflow-x: auto; }
+.safe-markdown table { min-width: 520px; border-collapse: collapse; font-size: 12px; }
+.safe-markdown th, .safe-markdown td { border: 1px solid #d5dfd0; padding: 8px 10px; vertical-align: top; }
+.safe-markdown th { background: #edf3e9; color: #29342a; font-weight: 750; }
+.safe-markdown__task-item { list-style: none; }
+.safe-markdown__task-item input { width: 16px; height: 16px; margin: 4px 7px 0 0; vertical-align: top; }
+.safe-markdown__image-placeholder { display: inline-flex; border: 1px solid #d5dfd0; border-radius: 4px; background: #f8fbf2; padding: 2px 6px; color: #637064; font-size: .86em; }
+
 .mobile-architecture,
 .mobile-canvas-toolbar { display: none; }
 
 @media (min-width: 768px) and (max-width: 1100px) {
+  .react-flow__controls-button {
+    width: 44px !important;
+    height: 44px !important;
+  }
+  .architecture-canvas-shell.has-region-reader { grid-template-columns: minmax(0, 1fr); }
+  .architecture-region-reader {
+    position: absolute;
+    z-index: 45;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    max-height: 56vh;
+    border: 1px solid #cbd7c6;
+    border-radius: 10px;
+    box-shadow: 0 18px 42px rgba(35, 48, 32, .16);
+  }
   .architecture-desktop-header {
-    grid-template-columns: minmax(150px, 1fr) auto auto;
+    grid-template-columns: minmax(80px, 1fr) minmax(0, 38vw) minmax(0, 48vw);
     gap: 7px;
     padding-inline: 8px;
   }
   .architecture-desktop-header__identity small { display: none; }
   .architecture-toolbar button,
   .architecture-toolbar a {
-    width: 36px;
-    min-height: 36px;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
     justify-content: center;
     overflow: hidden;
     padding: 0;
@@ -681,13 +843,26 @@ button.architecture-cap__button:hover { background: rgba(240, 245, 234, 0.6); }
   }
   .architecture-toolbar svg { width: 15px; }
   .architecture-toolbar .architecture-toolbar__track {
-    width: auto;
+    width: 44px;
     min-width: 44px;
     padding: 0 7px;
     font-size: 9px;
   }
-  .architecture-stage-nav { gap: 2px; }
-  .architecture-stage-nav button { width: 28px; height: 30px; }
+  .architecture-toolbar {
+    max-width: 48vw;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .architecture-stage-nav {
+    max-width: 38vw;
+    gap: 2px;
+    overflow-x: auto;
+  }
+  .architecture-stage-nav button {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+  }
 }
 
 @media (min-width: 768px) and (max-width: 900px) {
@@ -799,6 +974,11 @@ button.architecture-cap__button:hover { background: rgba(240, 245, 234, 0.6); }
     color: #182019;
     text-align: left;
   }
+  .architecture-canvas-shell.is-focused-region .mobile-architecture__node-list > button.is-highlighted {
+    border-color: #4f5f9b;
+    background: #f2f3fa;
+    box-shadow: inset 4px 0 0 #4f5f9b;
+  }
   .architecture-canvas-shell.is-focused-region .mobile-architecture__node-type {
     color: #4f5f9b;
     font-size: 9px;
@@ -847,9 +1027,11 @@ button.architecture-cap__button:hover { background: rgba(240, 245, 234, 0.6); }
 
 .architecture-canvas-shell.is-exporting-panorama .architecture-desktop-header,
 .architecture-canvas-shell.is-exporting-panorama .mobile-canvas-toolbar,
-.architecture-canvas-shell.is-exporting-panorama .mobile-architecture {
+.architecture-canvas-shell.is-exporting-panorama .mobile-architecture,
+.architecture-canvas-shell.is-exporting-panorama .architecture-region-reader {
   pointer-events: none;
 }
+.architecture-canvas-shell.is-exporting-panorama .architecture-region-reader { display: none; }
 
 @media (max-width: 767px) {
   .architecture-canvas-shell {
@@ -860,6 +1042,7 @@ button.architecture-cap__button:hover { background: rgba(240, 245, 234, 0.6); }
   }
 
   .architecture-desktop-header { display: none; }
+  .architecture-region-reader { display: none; }
 
   .desktop-architecture-canvas {
     position: fixed;
@@ -928,7 +1111,13 @@ button.architecture-cap__button:hover { background: rgba(240, 245, 234, 0.6); }
     letter-spacing: .12em;
   }
   .mobile-architecture__hero h1,
-  .mobile-architecture__sticky-header h1 { margin: 8px 0 0; font-size: 25px; line-height: 1.2; }
+  .mobile-architecture__sticky-header h1 {
+    margin: 8px 0 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 25px;
+    line-height: 1.2;
+  }
   .mobile-architecture__hero p,
   .mobile-architecture__sticky-header p { margin: 8px 0 0; color: #637064; font-size: 12px; line-height: 1.6; }
   .mobile-architecture__floors { display: grid; gap: 8px; margin-top: 18px; }
@@ -951,7 +1140,7 @@ button.architecture-cap__button:hover { background: rgba(240, 245, 234, 0.6); }
     color: #182019;
     text-align: left;
   }
-  .mobile-floor__toggle > span { display: flex; flex-direction: column; }
+  .mobile-floor__toggle > span { display: flex; min-width: 0; flex-direction: column; }
   .mobile-floor__toggle small { color: #637064; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; }
   .mobile-floor__toggle strong { margin-top: 3px; font-size: 14px; }
   .mobile-floor__toggle svg { width: 18px; transition: transform 150ms ease; }
@@ -971,9 +1160,16 @@ button.architecture-cap__button:hover { background: rgba(240, 245, 234, 0.6); }
     text-align: left;
   }
   .mobile-floor__rooms button > span { color: #4f5f9b; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; font-weight: 800; }
+  .mobile-floor__rooms button strong,
+  .mobile-architecture__node-list strong { min-width: 0; overflow-wrap: anywhere; }
   .mobile-floor__rooms button strong { margin-top: 4px; font-size: 13px; }
   .mobile-floor__rooms button small { margin-top: 5px; color: #637064; font-size: 10px; }
   .mobile-floor__rooms button svg { position: absolute; top: 50%; right: 14px; width: 17px; transform: translateY(-50%); color: #637064; }
+  .mobile-floor__rooms button.is-selected {
+    border-color: #4f5f9b;
+    background: #f2f3fa;
+    box-shadow: inset 4px 0 0 #4f5f9b;
+  }
 
   .mobile-architecture__sticky-header { border-bottom: 1px solid #d5dfd0; padding-bottom: 18px; }
   .mobile-architecture__back {
@@ -1018,6 +1214,11 @@ button.architecture-cap__button:hover { background: rgba(240, 245, 234, 0.6); }
     padding: 12px 42px 12px 14px;
     color: #182019;
     text-align: left;
+  }
+  .mobile-architecture__node-list > button.is-highlighted {
+    border-color: #4f5f9b;
+    background: #f2f3fa;
+    box-shadow: inset 4px 0 0 #4f5f9b;
   }
   .mobile-architecture__node-type { color: #4f5f9b; font-size: 9px; font-weight: 800; text-transform: uppercase; }
   .mobile-architecture__node-list strong { margin-top: 4px; font-size: 13px; }

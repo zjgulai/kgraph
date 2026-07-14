@@ -55,8 +55,13 @@ import {
 } from '@/lib/canvas/canvas-state';
 import {
   removeDocNodeFromView,
-  updateDocNodeAfterSave,
 } from '@/lib/canvas/doc-node-state';
+import {
+  buildDocumentPresentation,
+  type NodePresentation,
+  type RegionPresentation,
+} from '@/lib/canvas/document-presentation';
+import { cleanPresentationText, hasPresentationTextLeak } from '@/lib/canvas/presentation-text';
 import { isPngPaintSurfaceReady, selectPngPixelRatio } from '@/lib/canvas/png-export';
 import {
   ArchitectureCapNode,
@@ -73,6 +78,7 @@ import { CardNode } from './CardNode';
 import { NodeDetailSheet } from './NodeDetailSheet';
 import { SaveIndicator } from './SaveIndicator';
 import { SearchPanel } from './SearchPanel';
+import { ArchitectureRegionReader } from './ArchitectureRegionReader';
 
 const nodeTypes = {
   architectureCap: ArchitectureCapNode,
@@ -119,7 +125,44 @@ async function responseMessage(resp: Response): Promise<string> {
   }
 }
 
-function roomPreview(region: ArchitectureRegion): ArchitectureRoomPreview {
+function isParsedDocument(value: unknown): value is DocCanvasType {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<DocCanvasType>;
+  return typeof candidate.id === 'string'
+    && typeof candidate.title === 'string'
+    && typeof candidate.version === 'string'
+    && Array.isArray(candidate.nodes)
+    && Array.isArray(candidate.edges);
+}
+
+function assertExportTextSafe(root: HTMLElement): void {
+  const textWalker = window.document.createTreeWalker(root, window.NodeFilter.SHOW_TEXT);
+  let textNode = textWalker.nextNode();
+  while (textNode) {
+    if (hasPresentationTextLeak(textNode.textContent ?? '')) {
+      throw new Error('导出视图仍包含未清理的展示文本。');
+    }
+    textNode = textWalker.nextNode();
+  }
+
+  const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))];
+  for (const element of elements) {
+    const values = [
+      element.getAttribute('aria-label') ?? '',
+      element.getAttribute('title') ?? '',
+      element.getAttribute('alt') ?? '',
+    ];
+    if (values.some(hasPresentationTextLeak)) {
+      throw new Error('导出视图仍包含未清理的展示文本。');
+    }
+  }
+}
+
+function roomPreview(
+  region: ArchitectureRegion,
+  selectedRegionId: string | null = null,
+  presentation?: RegionPresentation,
+): ArchitectureRoomPreview {
   const count = (track: 'vibe' | 'shared' | 'pro') =>
     region.trackSummaries.find(summary => summary.track === track)?.count ?? 0;
   return {
@@ -127,8 +170,9 @@ function roomPreview(region: ArchitectureRegion): ArchitectureRoomPreview {
     eyebrow: region.stageNumber === undefined
       ? `MODULE ${String(region.order).padStart(2, '0')}`
       : `STAGE ${String(region.stageNumber).padStart(2, '0')}`,
-    title: region.title,
-    summary: region.summary,
+    title: presentation?.displayTitle ?? cleanPresentationText(region.title),
+    summary: presentation?.displaySummary ?? cleanPresentationText(region.summary),
+    selected: region.id === selectedRegionId,
     stageNumber: region.stageNumber,
     counts: {
       vibe: count('vibe'),
@@ -139,7 +183,7 @@ function roomPreview(region: ArchitectureRegion): ArchitectureRoomPreview {
   };
 }
 
-function docNodeData(node: DocNode) {
+function docNodeData(node: DocNode, presentation: NodePresentation) {
   const trackColor = node.track === 'vibe'
     ? '#147D78'
     : node.track === 'pro'
@@ -149,8 +193,9 @@ function docNodeData(node: DocNode) {
         : NODE_COLORS[node.type];
   return {
     docNodeId: node.id,
-    title: node.title,
-    summary: node.summary,
+    displayTitle: presentation.displayTitle,
+    displaySummary: presentation.displaySummary,
+    sourceLabel: presentation.sourceLabel,
     type: node.type,
     level: node.level,
     track: node.track,
@@ -203,10 +248,15 @@ function defaultExpandedTracks(): Set<string> {
 export default function CanvasViewer({ document, writePolicy }: Props) {
   const [docNodes, setDocNodes] = useState<DocNode[]>(() => document.nodes);
   const [docEdges, setDocEdges] = useState<DocEdge[]>(() => document.edges);
+  const [documentTitle, setDocumentTitle] = useState(document.title);
+  const [documentVersion, setDocumentVersion] = useState(document.version);
   const [canvasView, setCanvasView] = useState<CanvasView>({ kind: 'overview' });
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
+  const [dismissedReaderRegionId, setDismissedReaderRegionId] = useState<string | null>(null);
+  const [highlightedSearchNodeId, setHighlightedSearchNodeId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [activeStage, setActiveStage] = useState<number | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -227,14 +277,44 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
   const exportInFlightRef = useRef(false);
 
   const [expandedTracks, setExpandedTracks] = useState<Set<string>>(defaultExpandedTracks);
+  const presentationFingerprintRef = useRef<string | null>(null);
 
   const architectureModel = useMemo(() => buildArchitectureViewModel({
     id: document.id,
-    title: document.title,
-    version: document.version,
+    title: documentTitle,
+    version: documentVersion,
     nodes: docNodes,
     edges: docEdges,
-  }), [document.id, document.title, document.version, docEdges, docNodes]);
+  }), [document.id, documentTitle, documentVersion, docEdges, docNodes]);
+  const displayDocumentVersion = cleanPresentationText(documentVersion);
+  const documentPresentation = useMemo(() => buildDocumentPresentation(
+    { nodes: docNodes },
+    {
+      regions: architectureModel.regions.map(region => ({
+        id: region.id,
+        title: region.title,
+        summary: region.summary,
+        sourceTitle: region.sourceTitle,
+        headingNodeIds: region.headingNodeIds,
+        nodeIds: region.nodeIds,
+      })),
+      nodeRegionId: architectureModel.nodeRegionId,
+      nodeCopyById: new Map(Object.entries(architectureModel.nodePresentationCopy)),
+    },
+  ), [architectureModel, docNodes]);
+  const presentationByNodeId = documentPresentation.presentationByNodeId;
+  const regionPresentationById = documentPresentation.regionPresentationById;
+  const roofRegion = architectureModel.regions.find(region => region.kind === 'roof');
+  const displayArchitectureTitle = roofRegion
+    ? regionPresentationById.get(roofRegion.id)?.displayTitle ?? architectureModel.title
+    : architectureModel.title;
+  const presentationRecord = useMemo(() => Object.fromEntries(
+    [...presentationByNodeId].map(([nodeId, presentation]) => [nodeId, {
+      displayTitle: presentation.displayTitle,
+      displaySummary: presentation.displaySummary,
+      sourceLabel: presentation.sourceLabel,
+    }]),
+  ), [presentationByNodeId]);
   const layoutModel = useMemo(
     () => filterFocusedTracks(architectureModel, canvasView, expandedTracks),
     [architectureModel, canvasView, expandedTracks],
@@ -252,6 +332,10 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
   );
   const nodeById = useMemo(() => new Map(docNodes.map(node => [node.id, node])), [docNodes]);
   const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
+  const selectedNodePresentation = selectedNodeId
+    ? presentationByNodeId.get(selectedNodeId) ?? null
+    : null;
+  const selectedRegion = selectedRegionId ? regionById.get(selectedRegionId) : undefined;
   const focusedRegion = canvasView.kind === 'focused-region'
     ? regionById.get(canvasView.regionId)
     : undefined;
@@ -260,22 +344,49 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
     graphFingerprint: architectureModel.graphFingerprint,
   }), [architectureModel.graphFingerprint, document.id]);
 
+  useEffect(() => {
+    const previous = presentationFingerprintRef.current;
+    presentationFingerprintRef.current = architectureModel.graphFingerprint;
+    if (!previous || previous === architectureModel.graphFingerprint) return;
+    setSelectedRegionId(null);
+    setDismissedReaderRegionId(null);
+    setHighlightedSearchNodeId(null);
+  }, [architectureModel.graphFingerprint]);
+
+  const selectRegion = useCallback((regionId: string) => {
+    if (exportInFlightRef.current) return;
+    const region = regionById.get(regionId);
+    if (!region || region.kind === 'roof') return;
+    setSelectedRegionId(regionId);
+    setDismissedReaderRegionId(null);
+    setHighlightedSearchNodeId(null);
+    setActiveStage(region.stageNumber ?? null);
+    setDetailOpen(false);
+  }, [regionById]);
+
   const openRegion = useCallback((regionId: string) => {
     if (exportInFlightRef.current) return;
     const region = regionById.get(regionId);
     if (!region || region.kind === 'roof') return;
+    const highlightedRegionId = highlightedSearchNodeId
+      ? architectureModel.nodeRegionId[highlightedSearchNodeId]
+      : undefined;
+    if (highlightedRegionId !== regionId) setHighlightedSearchNodeId(null);
     restoreGenerationRef.current += 1;
+    setSelectedRegionId(regionId);
+    setDismissedReaderRegionId(null);
     setCanvasView({ kind: 'focused-region', regionId });
     setActiveStage(region.stageNumber ?? null);
     setDetailOpen(false);
     autoFitRef.current = true;
     restoredViewportRef.current = true;
-  }, [regionById]);
+  }, [architectureModel.nodeRegionId, highlightedSearchNodeId, regionById]);
 
   const returnToOverview = useCallback(() => {
     if (exportInFlightRef.current) return;
     restoreGenerationRef.current += 1;
     setCanvasView({ kind: 'overview' });
+    setDismissedReaderRegionId(null);
     setActiveStage(null);
     setDetailOpen(false);
     autoFitRef.current = true;
@@ -289,6 +400,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         position: layoutNode.position,
         draggable: layoutNode.draggable,
         selectable: layoutNode.kind === 'content',
+        selected: layoutNode.kind === 'content' && layoutNode.nodeId === highlightedSearchNodeId,
         zIndex: layoutNode.kind === 'group' ? 0 : layoutNode.kind === 'lane' ? 1 : 2,
         style: { width: layoutNode.width, height: layoutNode.height },
         ...(layoutNode.parentId ? { parentId: layoutNode.parentId, extent: 'parent' as const } : {}),
@@ -299,24 +411,27 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         const rooms = (layoutNode.regionIds ?? [])
           .map(regionId => regionById.get(regionId))
           .filter((region): region is ArchitectureRegion => Boolean(region))
-          .map(roomPreview);
+          .map(region => roomPreview(region, selectedRegionId, regionPresentationById.get(region.id)));
         const data: ArchitectureFloorData = {
           floorLabel: floor?.label ?? 'ARCHITECTURE FLOOR',
           title: architectureModel.mode === 'lifecycle' ? '产品生命周期层' : '产品能力模块层',
           rooms,
           mode: architectureModel.mode,
-          onOpenRoom: openRegion,
+          onSelectRoom: selectRegion,
         };
         return { ...base, type: 'architectureFloor', data: data as unknown as Record<string, unknown> };
       }
 
       if (layoutNode.kind === 'roof' || layoutNode.kind === 'foyer' || layoutNode.kind === 'foundation' || layoutNode.kind === 'annex') {
         const region = layoutNode.regionId ? regionById.get(layoutNode.regionId) : undefined;
+        const presentation = region ? regionPresentationById.get(region.id) : undefined;
         const chips = region
-          ? region.previewNodeIds.map(nodeId => nodeById.get(nodeId)?.title).filter((title): title is string => Boolean(title))
+          ? region.previewNodeIds
+            .map(nodeId => presentationByNodeId.get(nodeId)?.displayTitle)
+            .filter((title): title is string => Boolean(title))
           : [];
         const rootSummary = architectureModel.rootNodeId
-          ? nodeById.get(architectureModel.rootNodeId)?.summary ?? ''
+          ? presentationByNodeId.get(architectureModel.rootNodeId)?.displaySummary ?? ''
           : '';
         const kind = layoutNode.kind;
         const data: ArchitectureCapData = {
@@ -328,24 +443,28 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
               : kind === 'foundation'
                 ? 'FOUNDATION / GOVERNANCE'
                 : 'ANNEX / REFERENCES',
-          title: region?.title ?? (kind === 'foundation' ? '共享基础与治理' : '附属模块'),
-          summary: kind === 'roof' ? rootSummary || document.version : region?.summary ?? '',
+          title: presentation?.displayTitle ?? (kind === 'foundation' ? '共享基础与治理' : '附属模块'),
+          summary: kind === 'roof'
+            ? rootSummary || presentation?.displaySummary || displayDocumentVersion
+            : presentation?.displaySummary ?? '',
           chips,
+          selected: region?.id === selectedRegionId,
           roomId: region && kind !== 'roof' ? region.id : undefined,
-          onOpenRoom: openRegion,
+          onSelectRoom: selectRegion,
         };
         return { ...base, type: 'architectureCap', data: data as unknown as Record<string, unknown> };
       }
 
       if (layoutNode.kind === 'group') {
         const region = layoutNode.regionId ? regionById.get(layoutNode.regionId) : undefined;
+        const presentation = region ? regionPresentationById.get(region.id) : undefined;
         return {
           ...base,
           type: 'architectureRoomGroup',
           data: {
-            eyebrow: region ? roomPreview(region).eyebrow : 'FOCUSED ROOM',
-            title: region?.title ?? '聚焦房间',
-            summary: region?.summary ?? '',
+            eyebrow: region ? roomPreview(region, selectedRegionId, presentation).eyebrow : 'FOCUSED ROOM',
+            title: presentation?.displayTitle ?? '聚焦房间',
+            summary: presentation?.displaySummary ?? '',
             resourceCount: region?.resources.count ?? 0,
           },
         };
@@ -373,18 +492,21 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
           data: {
             title: '工具、Prompt 与引用',
             count: region?.resources.count ?? 0,
-            previews: region?.resources.previews.map(preview => preview.title) ?? [],
+            previews: region?.resources.previews.map(preview => (
+              presentationByNodeId.get(preview.id)?.displayTitle ?? cleanPresentationText(preview.title)
+            )) ?? [],
           },
         };
       }
 
       const docNode = layoutNode.nodeId ? nodeById.get(layoutNode.nodeId) : undefined;
-      if (!docNode) {
+      const presentation = layoutNode.nodeId ? presentationByNodeId.get(layoutNode.nodeId) : undefined;
+      if (!docNode || !presentation) {
         return { ...base, type: 'architectureResource', data: { title: '内容不可用', count: 0, previews: [] } };
       }
-      return { ...base, type: 'cardNode', data: docNodeData(docNode) };
+      return { ...base, type: 'cardNode', data: docNodeData(docNode, presentation) };
     });
-  }, [architectureModel, document.version, layout.nodes, nodeById, openRegion, regionById]);
+  }, [architectureModel, displayDocumentVersion, highlightedSearchNodeId, layout.nodes, nodeById, presentationByNodeId, regionById, regionPresentationById, selectRegion, selectedRegionId]);
 
   const projectedEdges = useMemo<Edge[]>(() => layout.edges.map(edge => ({
     id: edge.id,
@@ -476,6 +598,8 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         setExpandedTracks(new Set(state.expandedNodes.filter(value => /^stage[1-8]-(?:vibe|pro)$/.test(value))));
       }
       setCanvasView(state.view);
+      setSelectedRegionId(state.view.kind === 'focused-region' ? state.view.regionId : null);
+      setDismissedReaderRegionId(null);
       setActiveStage(state.view.kind === 'focused-region' ? regionById.get(state.view.regionId)?.stageNumber ?? null : null);
       setLastSavedTime(state.lastSaved ?? '');
     };
@@ -486,9 +610,14 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
   useEffect(() => {
     setDocNodes(document.nodes);
     setDocEdges(document.edges);
+    setDocumentTitle(document.title);
+    setDocumentVersion(document.version);
     setSelectedNodeId(null);
+    setSelectedRegionId(null);
+    setDismissedReaderRegionId(null);
+    setHighlightedSearchNodeId(null);
     setDetailOpen(false);
-  }, [document.edges, document.id, document.nodes]);
+  }, [document.edges, document.id, document.nodes, document.title, document.version]);
 
   const saveCanvasState = useCallback(async () => {
     restoreGenerationRef.current += 1;
@@ -554,6 +683,9 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
     autoFitRef.current = true;
     setCanvasView({ kind: 'overview' });
     setActiveStage(null);
+    setSelectedRegionId(null);
+    setDismissedReaderRegionId(null);
+    setHighlightedSearchNodeId(null);
     setExpandedTracks(defaultExpandedTracks());
     if (writePolicy.writable) {
       try {
@@ -672,6 +804,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         }
       }
       if (!projectionReady) throw new Error('建筑全景投影未在时限内稳定。');
+      assertExportTextSafe(viewportElement);
       const visibleNodes = nodesRef.current.filter(node => !node.hidden);
       if (visibleNodes.length === 0) throw new Error('当前没有可导出的节点。');
       const bounds = getNodesBounds(visibleNodes);
@@ -717,16 +850,49 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
     setDetailOpen(true);
   }, [nodeById]);
 
+  const replaceParsedDocument = useCallback((nextDocument: DocCanvasType, hiddenNodeId?: string) => {
+    setDocumentTitle(nextDocument.title);
+    setDocumentVersion(nextDocument.version);
+    setDocNodes(hiddenNodeId
+      ? removeDocNodeFromView(nextDocument.nodes, hiddenNodeId)
+      : nextDocument.nodes);
+    setDocEdges(hiddenNodeId
+      ? nextDocument.edges.filter(edge => edge.source !== hiddenNodeId && edge.target !== hiddenNodeId)
+      : nextDocument.edges);
+    setSelectedNodeId(null);
+    setDetailOpen(false);
+  }, []);
+
   const navigateToNode = useCallback((nodeId: string) => {
     const regionId = architectureModel.nodeRegionId[nodeId];
-    if (regionId) openRegion(regionId);
-    openDocNode(nodeId);
-  }, [architectureModel.nodeRegionId, openDocNode, openRegion]);
+    const region = regionId ? regionById.get(regionId) : undefined;
+    if (!region || region.kind === 'roof') {
+      openDocNode(nodeId);
+      return;
+    }
+    restoreGenerationRef.current += 1;
+    setCanvasView({ kind: 'overview' });
+    setSelectedRegionId(region.id);
+    setDismissedReaderRegionId(null);
+    setHighlightedSearchNodeId(nodeId);
+    setActiveStage(region.stageNumber ?? null);
+    setDetailOpen(false);
+    autoFitRef.current = true;
+    restoredViewportRef.current = true;
+  }, [architectureModel.nodeRegionId, openDocNode, regionById]);
 
   const stageRegions = useMemo(() => architectureModel.regions
     .filter(region => region.stageNumber !== undefined)
     .sort((left, right) => (left.stageNumber ?? 0) - (right.stageNumber ?? 0)), [architectureModel.regions]);
   const fileMetadata = (document as FileBackedDocument)._file;
+  const selectedRegionPresentation = selectedRegion
+    ? documentPresentation.regionPresentationById.get(selectedRegion.id)
+    : undefined;
+  const showRegionReader = canvasView.kind === 'overview'
+    && Boolean(selectedRegion && selectedRegionPresentation)
+    && dismissedReaderRegionId !== selectedRegion?.id
+    && !isMobileViewport
+    && !exportingPanorama;
 
   const mobileFloors = useMemo<MobileArchitectureFloor[]>(() => {
     const floors = architectureModel.floors.map(floor => ({
@@ -736,7 +902,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
       rooms: floor.regionIds
         .map(regionId => regionById.get(regionId))
         .filter((region): region is ArchitectureRegion => Boolean(region))
-        .map(roomPreview),
+        .map(region => roomPreview(region, selectedRegionId, regionPresentationById.get(region.id))),
     }));
     const baseRegions = architectureModel.regions.filter(region =>
       region.kind === 'foyer' || region.kind === 'foundation' || region.kind === 'annex',
@@ -745,12 +911,12 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
       id: 'mobile:foundation',
       label: 'GROUND / FOUNDATION',
       title: '入口、基础与附属',
-      rooms: baseRegions.map(roomPreview),
+      rooms: baseRegions.map(region => roomPreview(region, selectedRegionId, regionPresentationById.get(region.id))),
     }, ...floors];
-  }, [architectureModel.floors, architectureModel.mode, architectureModel.regions, regionById]);
+  }, [architectureModel.floors, architectureModel.mode, architectureModel.regions, regionById, regionPresentationById, selectedRegionId]);
 
   const mobileFocused = focusedRegion ? {
-    room: roomPreview(focusedRegion),
+    room: roomPreview(focusedRegion, selectedRegionId, regionPresentationById.get(focusedRegion.id)),
     nodesByTrack: Object.fromEntries((['vibe', 'shared', 'pro'] as const).map(track => {
       const nodeIds = focusedRegion.trackSummaries.find(summary => summary.track === track)?.nodeIds ?? [];
       return [track, nodeIds.map(nodeId => nodeById.get(nodeId)).filter((node): node is DocNode => Boolean(node))];
@@ -788,13 +954,13 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
       <div
         ref={canvasShellRef}
         inert={exportingPanorama}
-        className={`architecture-canvas-shell ${canvasView.kind === 'focused-region' ? 'is-focused-region' : ''} ${exportingPanorama ? 'is-exporting-panorama' : ''}`}
+        className={`architecture-canvas-shell ${canvasView.kind === 'focused-region' ? 'is-focused-region' : ''} ${showRegionReader ? 'has-region-reader' : ''} ${exportingPanorama ? 'is-exporting-panorama' : ''}`}
       >
       <header className="architecture-desktop-header">
         <div className="architecture-desktop-header__identity">
           <FileText aria-hidden="true" />
           <span>
-            <strong>{document.title}</strong>
+            <strong>{displayArchitectureTitle}</strong>
             <small>
               {architectureModel.mode === 'lifecycle' ? '生命周期建筑' : '模块建筑'} · {architectureModel.regions.filter(region => region.kind === 'room').length} 个房间 · {docNodes.length} 个源节点
               {fileMetadata ? ` · ${formatDisplayDate(fileMetadata.mtime)} · ${formatDisplayInteger(fileMetadata.bytes)} 字符` : ''}
@@ -809,9 +975,9 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
               <button
                 type="button"
                 key={region.id}
-                onClick={() => openRegion(region.id)}
+                onClick={() => selectRegion(region.id)}
                 className={activeStage === region.stageNumber ? 'is-active' : ''}
-                aria-label={`进入阶段 ${region.stageNumber}`}
+                aria-label={`选择阶段 ${region.stageNumber}`}
               >
                 {region.stageNumber}
               </button>
@@ -908,6 +1074,23 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         </ReactFlow>
       </div>
 
+      {showRegionReader && selectedRegion && selectedRegionPresentation && (
+        <ArchitectureRegionReader
+          region={{
+            id: selectedRegion.id,
+            eyebrow: roomPreview(selectedRegion, selectedRegionId, selectedRegionPresentation).eyebrow,
+            title: selectedRegionPresentation.displayTitle,
+            summary: selectedRegionPresentation.displaySummary,
+            sourceLabels: [...selectedRegionPresentation.sourceLabels],
+            previewNodeIds: selectedRegion.previewNodeIds,
+          }}
+          presentations={presentationRecord}
+          highlightedNodeId={highlightedSearchNodeId ?? undefined}
+          onEnterRoom={openRegion}
+          onClose={() => setDismissedReaderRegionId(selectedRegion.id)}
+        />
+      )}
+
       <div className="mobile-canvas-toolbar">
         <Link href="/" aria-label="返回工作台"><Home aria-hidden="true" /></Link>
         <button type="button" onClick={() => setSearchRequest(value => value + 1)} aria-label="搜索"><Search aria-hidden="true" /></button>
@@ -916,18 +1099,22 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         <button type="button" onClick={exportMarkdown} aria-label="导出 Markdown"><Download aria-hidden="true" /></button>
       </div>
       <MobileArchitectureView
-        documentTitle={document.title}
-        version={document.version}
+        documentTitle={displayArchitectureTitle}
+        version={displayDocumentVersion}
         floors={mobileFloors}
         focused={mobileFocused}
+        presentationByNodeId={presentationRecord}
+        highlightedNodeId={highlightedSearchNodeId ?? undefined}
         onOpenRoom={openRegion}
         onBack={returnToOverview}
         onOpenNode={openDocNode}
       />
 
-      {selectedNode && (
+      {detailOpen && selectedNode && selectedNodePresentation && (
         <NodeDetailSheet
           node={selectedNode}
+          presentation={selectedNodePresentation}
+          displayMarkdownBlocks={documentPresentation.getDisplayMarkdown(selectedNode.id)}
           open={detailOpen}
           readOnly={!writePolicy.writable}
           onClose={() => setDetailOpen(false)}
@@ -953,9 +1140,14 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
               setSaveError(message);
               throw new Error(message);
             }
-            setDocNodes(previous => removeDocNodeFromView(previous, nodeId));
-            setDocEdges(previous => previous.filter(edge => edge.source !== nodeId && edge.target !== nodeId));
-            setSelectedNodeId(null);
+            const result = await response.json().catch(() => ({}));
+            if (!isParsedDocument(result.document)) {
+              const message = '保存成功，但服务器未返回完整解析结果。';
+              setSaveStatus('error');
+              setSaveError(message);
+              throw new Error(message);
+            }
+            replaceParsedDocument(result.document, nodeId);
             setSaveStatus('saved');
             setLastSavedTime(new Date().toISOString());
             setDetailOpen(false);
@@ -983,12 +1175,13 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
               throw new Error(message);
             }
             const result = await response.json().catch(() => ({}));
-            setDocNodes(previous => updateDocNodeAfterSave(previous, {
-              id: selectedNode.id,
-              title: heading,
-              content: updatedContent,
-              hash: typeof result.hash === 'string' ? result.hash : undefined,
-            }));
+            if (!isParsedDocument(result.document)) {
+              const message = '保存成功，但服务器未返回完整解析结果。';
+              setSaveStatus('error');
+              setSaveError(message);
+              throw new Error(message);
+            }
+            replaceParsedDocument(result.document);
             setSaveStatus('saved');
             setLastSavedTime(new Date().toISOString());
             setDetailOpen(false);
@@ -996,7 +1189,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         />
       )}
 
-      <SearchPanel nodes={docNodes} onNavigateToNode={navigateToNode} openRequest={searchRequest} />
+      <SearchPanel presentations={documentPresentation} onNavigateToNode={navigateToNode} openRequest={searchRequest} />
       <SaveIndicator status={saveStatus} lastSaved={lastSavedTime} errorMessage={saveError} />
       </div>
 

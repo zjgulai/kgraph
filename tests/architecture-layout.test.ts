@@ -106,7 +106,7 @@ test('real documents use the expected architecture mode and explicit stage headi
   ));
 
   const nestedLifecycle = models['playbook-v2'].regions.find(region =>
-    region.title.includes('八阶段生命周期'),
+    region.title === '交付与自动化',
   );
   assert.ok(nestedLifecycle);
   assert.deepEqual(nestedLifecycle.nestedStageNumbers, [1, 2, 3, 4, 5, 6, 7, 8]);
@@ -144,7 +144,7 @@ test('view model and both layouts are deterministic and map every graph node to 
 test('long focused rooms use deterministic multi-column lanes with at least 32px peer gaps', () => {
   const graph = loadBuiltin('playbook-v2', 'documents/Playbook-v2.md');
   const model = buildArchitectureViewModel(graph);
-  const region = model.regions.find(candidate => candidate.title.includes('八阶段生命周期'));
+  const region = model.regions.find(candidate => candidate.title === '交付与自动化');
   assert.ok(region);
   const focused = computeArchitectureFocusedLayout(model, region.id);
   const content = focused.nodes.filter(node => node.kind === 'content');
@@ -201,12 +201,15 @@ Last.
 Fifth.
 `, 'module-fallback');
   const model = buildArchitectureViewModel(graph);
-  const repeated = model.regions.filter(region => region.title === 'Repeat');
+  const repeated = model.regions.filter(region => region.sourceTitle === 'Repeat');
 
   assert.equal(model.mode, 'module');
   assert.equal(repeated.length, 2);
+  assert.deepEqual(repeated.map(region => region.title), ['Repeat', 'Repeat 02']);
   assert.notEqual(repeated[0].id, repeated[1].id);
-  assert.ok(model.regions.some(region => region.title === longTitle));
+  const longRegion = model.regions.find(region => region.sourceTitle === longTitle);
+  assert.ok(longRegion);
+  assert.ok([...longRegion.title].length <= 36);
   assert.ok(model.floors.every(floor => floor.regionIds.length <= 4));
   assertOverviewGeometry(model);
 });

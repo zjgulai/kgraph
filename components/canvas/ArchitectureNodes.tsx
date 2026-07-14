@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import {
   ArrowRight,
@@ -17,6 +18,7 @@ export interface ArchitectureRoomPreview {
   eyebrow: string;
   title: string;
   summary: string;
+  selected: boolean;
   stageNumber?: number;
   counts: {
     vibe: number;
@@ -31,7 +33,7 @@ export interface ArchitectureFloorData {
   title: string;
   rooms: ArchitectureRoomPreview[];
   mode: 'lifecycle' | 'module';
-  onOpenRoom: (regionId: string) => void;
+  onSelectRoom: (regionId: string) => void;
 }
 
 export interface ArchitectureCapData {
@@ -40,8 +42,9 @@ export interface ArchitectureCapData {
   title: string;
   summary: string;
   chips: string[];
+  selected: boolean;
   roomId?: string;
-  onOpenRoom?: (regionId: string) => void;
+  onSelectRoom?: (regionId: string) => void;
 }
 
 export interface ArchitectureLaneData {
@@ -106,18 +109,20 @@ export function ArchitectureFloorNode({ data }: NodeProps) {
           <button
             type="button"
             key={room.id}
-            className="architecture-room nodrag nopan"
+            className={`architecture-room nodrag nopan${room.selected ? ' is-selected' : ''}`}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.stopPropagation();
-              d.onOpenRoom(room.id);
+              d.onSelectRoom(room.id);
             }}
-            aria-label={`进入 ${room.title}`}
+            aria-label={`选择房间 ${room.title}`}
+            aria-pressed={room.selected}
           >
             <span className="architecture-room__index">{String(index + 1).padStart(2, '0')}</span>
             <span className="architecture-room__copy">
               <span className="architecture-room__eyebrow">{room.eyebrow}</span>
               <strong className="architecture-room__title">{room.title}</strong>
+              {room.summary && <span className="architecture-room__summary">{room.summary}</span>}
             </span>
             <span className="architecture-room__metrics" aria-label="轨道节点统计">
               <TrackCount label="Vibe" value={room.counts.vibe} track="vibe" />
@@ -142,7 +147,7 @@ const capIcons = {
 export function ArchitectureCapNode({ data }: NodeProps) {
   const d = data as unknown as ArchitectureCapData;
   const Icon = capIcons[d.kind];
-  const interactive = Boolean(d.roomId && d.onOpenRoom);
+  const interactive = Boolean(d.roomId && d.onSelectRoom);
   const content = (
     <>
       <span className="architecture-cap__icon"><Icon aria-hidden="true" /></span>
@@ -167,12 +172,14 @@ export function ArchitectureCapNode({ data }: NodeProps) {
       {interactive ? (
         <button
           type="button"
-          className="architecture-cap__button nodrag nopan"
+          className={`architecture-cap__button nodrag nopan${d.selected ? ' is-selected' : ''}`}
           onMouseDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
-            d.onOpenRoom?.(d.roomId!);
+            d.onSelectRoom?.(d.roomId!);
           }}
+          aria-label={`选择房间 ${d.title}`}
+          aria-pressed={d.selected}
         >
           {content}
         </button>

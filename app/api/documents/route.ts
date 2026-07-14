@@ -64,11 +64,23 @@ export async function PATCH(req: NextRequest) {
     newContent: content,
   });
 
+  if (!result.success) {
+    return NextResponse.json({
+      ...result,
+      documentId,
+      editedAt: new Date().toISOString(),
+    }, { status: 409 });
+  }
+
+  const markdown = readFileSync(filePath, 'utf-8');
+  const graph = parseMarkdownToGraph(markdown, documentId, filePath);
+
   return NextResponse.json({
     ...result,
     documentId,
+    document: graph,
     editedAt: new Date().toISOString(),
-  }, { status: result.success ? 200 : 409 });
+  });
 }
 
 /**
@@ -101,6 +113,7 @@ export async function POST(req: NextRequest) {
       nodeCount: graph.nodes.length,
       edgeCount: graph.edges.length,
     },
+    document: graph,
     parsedAt: new Date().toISOString(),
   });
 }

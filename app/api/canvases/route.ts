@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createUserCanvas, listDocumentEntries } from '@/lib/shared/document-registry';
 import { checkWriteAccess, getWritePolicy } from '@/lib/server/write-guard';
 import { parseJsonBody } from '@/lib/server/parse-json-body';
+import { cleanPresentationText } from '@/lib/canvas/presentation-text';
 
 const CreateCanvasSchema = z.object({
   title: z.string().min(1).max(120),
@@ -26,6 +27,12 @@ export async function POST(req: NextRequest) {
   const parsed = CreateCanvasSchema.safeParse(body.value);
   if (!parsed.success) return NextResponse.json({ error: 'Invalid canvas payload', issues: parsed.error.issues }, { status: 400 });
 
-  const canvas = await createUserCanvas(parsed.data);
+  const title = cleanPresentationText(parsed.data.title);
+  if (!title) return NextResponse.json({ error: 'Canvas title must contain readable text' }, { status: 400 });
+  const canvas = await createUserCanvas({
+    ...parsed.data,
+    title,
+    description: cleanPresentationText(parsed.data.description),
+  });
   return NextResponse.json({ canvas }, { status: 201 });
 }

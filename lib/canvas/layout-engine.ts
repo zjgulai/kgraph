@@ -234,7 +234,7 @@ export function computeArchitectureFocusedLayout(
     summary.track === 'shared' || summary.count > 0,
   );
   const laneConfigs = trackSummaries.map(summary => {
-    const columns = summary.count >= 9 ? 3 : summary.count >= 5 ? 2 : 1;
+    const columns = summary.count >= 17 ? 4 : summary.count >= 9 ? 3 : summary.count >= 5 ? 2 : 1;
     const rows = Math.max(1, Math.ceil(summary.nodeIds.length / columns));
     const width = Math.max(
       LANE_WIDTH,

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Check, Loader2, AlertTriangle } from 'lucide-react';
+import { cleanPresentationText } from '@/lib/canvas/presentation-text';
 
 type Status = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -24,7 +25,7 @@ export function SaveIndicator({ status, lastSaved, errorMessage }: Props) {
       {status === 'saving' && <Loader2 className="w-3 h-3 animate-spin" />}
       {status === 'saved' && <Check className="w-3 h-3" />}
       {status === 'error' && <AlertTriangle className="w-3 h-3" />}
-      <span>{status === 'saving' ? '保存中...' : status === 'saved' ? `已保存 ${time}` : errorMessage || '保存失败'}</span>
+      <span>{status === 'saving' ? '保存中...' : status === 'saved' ? `已保存 ${time}` : cleanPresentationText(errorMessage) || '保存失败'}</span>
     </div>
   );
 }
