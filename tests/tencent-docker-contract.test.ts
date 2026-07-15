@@ -127,6 +127,8 @@ test('build script assembles an external allowlist context and requires a digest
   assert.match(script, /RUNTIME_IMAGE.*distroless.*@sha256:/s);
   assert.match(script, /mktemp -d/);
   assert.match(script, /--platform linux\/amd64/);
+  assert.match(script, /BUILDX_BUILDER/);
+  assert.match(script, /--builder "\$BUILDX_BUILDER"/);
   assert.match(script, /--provenance=false/);
   assert.match(script, /release id does not match HEAD/);
   assert.match(script, /tracked worktree changes must be committed before build/);
@@ -141,6 +143,7 @@ test('build script assembles an external allowlist context and requires a digest
   assert.match(script, /manifest_digest=/);
   assert.match(script, /runtime_config_digest=/);
   assert.match(script, /archive_config_digest=/);
+  assert.match(script, /buildx_builder=/);
   assert.match(script, /sensitive/i);
   assert.match(script, /docker save/);
   assert.match(script, /app components lib opendesign public documents scripts tests deploy/);

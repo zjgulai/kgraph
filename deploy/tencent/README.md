@@ -12,7 +12,7 @@ updated: 2026-07-15
 
 ## 本地顺序
 
-1. 为 `NODE_IMAGE` 提供经过核验的 `node:22-bookworm-slim@sha256:...`。
+1. 为 `NODE_IMAGE` 提供经过核验的 `node:22-bookworm-slim@sha256:...`，并通过 `BUILDX_BUILDER` 显式指定已核验的 Buildx builder；不得继承全局当前 builder。
 2. 运行 `scripts/tencent/build-linux-image.sh <release-id> <output-dir>`。
 3. 运行 `scripts/tencent/verify-linux-image.sh <image-tag>`，在隔离临时数据上验证 Owner 会话、未授权拒绝与真实写入。
 4. 在候选主机目录以 root 运行 `scripts/tencent/prepare-owner-data.sh <data-root> <seed-root>`，只补缺失种子并固定 UID `10001` 权限。

@@ -10,6 +10,9 @@ RELEASE_ID="$1"
 OUTPUT_DIR="$2"
 [[ "$RELEASE_ID" =~ ^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8,64}$ ]] || fail "invalid release id"
 [[ "${NODE_IMAGE:-}" =~ ^node:22-bookworm-slim@sha256:[a-f0-9]{64}$ ]] || fail "NODE_IMAGE must be node:22-bookworm-slim@sha256:<64 hex>"
+BUILDX_BUILDER="${BUILDX_BUILDER:-}"
+[[ "$BUILDX_BUILDER" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || fail "BUILDX_BUILDER must name an existing explicit builder"
+docker buildx inspect "$BUILDX_BUILDER" >/dev/null 2>&1 || fail "BUILDX_BUILDER does not exist: $BUILDX_BUILDER"
 RUNTIME_IMAGE="${RUNTIME_IMAGE:-gcr.io/distroless/nodejs22-debian13@sha256:773a62fbe24a3f8c8b24b16fd59154627f8b406737bc906f83bf1732bc8907dd}"
 [[ "$RUNTIME_IMAGE" =~ ^gcr\.io/distroless/nodejs22-debian13@sha256:[a-f0-9]{64}$ ]] || fail "RUNTIME_IMAGE must be a digest-pinned distroless Node 22 image"
 [[ ! -e "$OUTPUT_DIR" ]] || fail "output directory already exists: $OUTPUT_DIR"
@@ -57,6 +60,7 @@ BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 IMAGE_TAG="doccanvas-kgraph:${RELEASE_ID}"
 find "$CONTEXT_DIR" -type f -print | sed "s#^$CONTEXT_DIR/##" | LC_ALL=C sort > "$STAGING_OUTPUT/context-manifest.txt"
 docker buildx build \
+  --builder "$BUILDX_BUILDER" \
   --platform linux/amd64 \
   --load \
   --provenance=false \
@@ -121,6 +125,7 @@ ARCHIVE_SHA="$(shasum -a 256 "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz" | awk '{prin
   echo "manifest_digest=$MANIFEST_DIGEST"
   echo "runtime_config_digest=$RUNTIME_CONFIG_DIGEST"
   echo "archive_config_digest=$ARCHIVE_CONFIG_DIGEST"
+  echo "buildx_builder=$BUILDX_BUILDER"
   echo "platform=$PLATFORM"
   echo "source_sha256=$SOURCE_SHA"
   echo "archive_sha256=$ARCHIVE_SHA"

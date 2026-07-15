@@ -43,7 +43,7 @@ production_status: last_verified_readonly_release_requires_fresh_recheck
 | 顺序 | 阶段 | 动作 | 完成标准 |
 |---|---|---|---|
 | 1 | 本地收口 | `npm ci`、unit、typecheck、production build、Chromium/WebKit/移动端、视觉快照、CRUD、安全负例、1000/2000 性能夹具 | 全部新鲜通过；失败不得制作 release |
-| 2 | 候选制作 | 从 clean commit 运行 `build-linux-image.sh`，再运行 Owner `verify-linux-image.sh` | immutable amd64 image 与 checksum 证据齐全；未登录 401、跨站 403、Owner 登录与真实写入通过 |
+| 2 | 候选制作 | 从 clean commit 且显式指定 `BUILDX_BUILDER` 运行 `build-linux-image.sh`，再运行 Owner `verify-linux-image.sh` | immutable amd64 image 与 checksum 证据齐全；builder 身份进入 manifest；未登录 401、跨站 403、Owner 登录与真实写入通过 |
 | 3 | 生产只读再熟悉 | 使用可信 fingerprint 和 isolated `known_hosts` 检查主机、Docker、Compose、Nginx、TLS、data、资源和其他容器 | 形成 L3 基线；发现漂移即重新规划 |
 | 4 | 写入静默与快照 | 停止 DocCanvas app 接收写入，确认无 transaction journal 活动；运行 `backup-owner-data.sh` | archive 可解包，archive/manifest checksum 固定，其他项目不变 |
 | 5 | Owner data 预检 | 运行 `prepare-owner-data.sh`，校验 missing-only seed、UID 10001、目录权限、secret file 和 Compose config | 既有文档 checksum 不变；新增目录可写；无 symlink/path traversal |
