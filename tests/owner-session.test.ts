@@ -92,3 +92,54 @@ test('owner login returns a secure HttpOnly strict cookie', async () => {
   assert.match(cookie, /Secure/i);
   assert.match(cookie, /SameSite=strict/i);
 });
+
+test('owner origin checks reconstruct the public origin from Host and forwarded protocol', async () => {
+  configureOwner();
+  const headers = {
+    'content-type': 'application/json',
+    host: 'kgraph.lute-tlz-dddd.top',
+    origin: 'https://kgraph.lute-tlz-dddd.top',
+    'x-forwarded-proto': 'https',
+  };
+  const response = await login(new NextRequest('http://localhost:3000/api/owner/session', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ token: process.env.DOCCANVAS_ADMIN_TOKEN }),
+  }));
+  assert.equal(response.status, 200);
+
+  const proxiedWrite = new NextRequest('http://localhost:3000/api/documents', {
+    method: 'POST',
+    headers: {
+      ...headers,
+      cookie: `${OWNER_SESSION_COOKIE}=${createOwnerSession()}`,
+    },
+  });
+  assert.deepEqual(checkWriteAccess(proxiedWrite), { ok: true });
+});
+
+test('owner origin checks allow a direct same-host smoke request but reject invalid forwarding', async () => {
+  configureOwner();
+  const direct = await login(new NextRequest('http://localhost:3000/api/owner/session', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      host: '127.0.0.1:3200',
+      origin: 'http://127.0.0.1:3200',
+    },
+    body: JSON.stringify({ token: process.env.DOCCANVAS_ADMIN_TOKEN }),
+  }));
+  assert.equal(direct.status, 200);
+
+  const invalidForwarding = await login(new NextRequest('http://localhost:3000/api/owner/session', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      host: 'kgraph.lute-tlz-dddd.top',
+      origin: 'https://kgraph.lute-tlz-dddd.top',
+      'x-forwarded-proto': 'javascript',
+    },
+    body: JSON.stringify({ token: process.env.DOCCANVAS_ADMIN_TOKEN }),
+  }));
+  assert.equal(invalidForwarding.status, 403);
+});

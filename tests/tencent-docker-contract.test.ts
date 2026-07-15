@@ -93,6 +93,9 @@ test('Owner image smoke waits explicitly for deep readiness without recurring ap
   assert.match(script, /doccanvas_docker_health_status/);
   assert.match(script, /docker logs --tail 80/);
   assert.doesNotMatch(script, /if \.State\.Health|\.State\.Health\.Status|if \.Config\.Healthcheck|== "healthy"/);
+  assert.match(script, /\/nodejs\/bin\/node --input-type=module -/);
+  assert.match(script, /import \{ readFileSync \} from 'node:fs';/);
+  assert.doesNotMatch(script, /const \{ readFileSync \} = require\('fs'\);/);
 });
 
 test('edge Nginx fails closed by Host and proxies deep app health through Docker DNS', () => {

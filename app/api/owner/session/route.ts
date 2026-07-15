@@ -8,6 +8,7 @@ import {
   OWNER_SESSION_MAX_AGE_SECONDS,
   ownerRuntimeReady,
   requestHasOwnerSession,
+  sameOriginRequest,
   verifyOwnerToken,
 } from '@/lib/server/write-guard';
 
@@ -36,11 +37,6 @@ function clearAttempts(key: string): void {
   attempts.delete(key);
 }
 
-function originAllowed(req: NextRequest): boolean {
-  const origin = req.headers.get('origin');
-  return !origin || origin === req.nextUrl.origin;
-}
-
 export async function GET(req: NextRequest) {
   const policy = getWritePolicy();
   return NextResponse.json({
@@ -55,7 +51,7 @@ export async function POST(req: NextRequest) {
   const policy = getWritePolicy();
   if (policy.mode === 'readonly') return NextResponse.json({ error: 'DocCanvas is read-only in production.' }, { status: 403 });
   if (policy.mode === 'dev') return NextResponse.json({ authenticated: true, mode: 'dev' });
-  if (!originAllowed(req)) return NextResponse.json({ error: 'Cross-origin login request rejected.' }, { status: 403 });
+  if (!sameOriginRequest(req)) return NextResponse.json({ error: 'Cross-origin login request rejected.' }, { status: 403 });
   if (!ownerRuntimeReady()) return NextResponse.json({ error: 'Owner mode is not fully configured.' }, { status: 503 });
 
   const key = clientKey(req);
@@ -81,7 +77,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  if (!originAllowed(req)) return NextResponse.json({ error: 'Cross-origin logout request rejected.' }, { status: 403 });
+  if (!sameOriginRequest(req)) return NextResponse.json({ error: 'Cross-origin logout request rejected.' }, { status: 403 });
   const response = NextResponse.json({ authenticated: false });
   response.cookies.set(OWNER_SESSION_COOKIE, '', {
     httpOnly: true,

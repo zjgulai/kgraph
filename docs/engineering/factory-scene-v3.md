@@ -50,6 +50,9 @@ Owner UI 只在服务端确认 HttpOnly 会话后渲染。mutation 使用 revisi
 - WebKit 对完全透明 SVG stroke 的 hover/click 命中不稳定；命中线使用 `0.001` stroke opacity，并以 mouse enter、pointer up 和键盘路径分别验收。
 - 外层 ResizeObserver 不得执行已排队但已失效的自动适配；视口一旦完成变更即关闭 auto-fit，resize timer 在执行时再次核验，避免 hover 后线路坐标漂移。
 - Docker 29 containerd image store 的 `.Id` 可表示 manifest digest，而 Docker 26 传统 store 在 `docker load` 后可能以 config digest 表示 image ID；禁止跨版本直接断言 `.Id == config digest`。候选制作分别校验 Buildx manifest 与本地 RepoDigest，并从最终 `docker save` 归档提取 config blob、重算其 SHA-256 后再与 Buildx runtime config digest 比对。
+- Buildx 的全局当前 builder 会被其他项目切换，且可能携带不相容的 registry mirror；候选脚本必须要求显式 `BUILDX_BUILDER`、通过 `--builder` 传入并把 builder 身份写入 manifest。
+- Next standalone 在容器或反向代理后的 `req.nextUrl.origin` 可能是内部 origin，不等于浏览器 `Origin`；Owner 同源校验使用 edge 覆盖后的 `Host` 和受限 `X-Forwarded-Proto` 重建网络 origin，非 `http/https`、多值 protocol 或非法 Host 均 fail closed。
+- Distroless Node 22 中的 stdin smoke 程序不得混用 CommonJS `require()` 与 top-level `await`；使用 `--input-type=module` 和 ESM import 锁定模块格式。
 
 ## 验证门
 

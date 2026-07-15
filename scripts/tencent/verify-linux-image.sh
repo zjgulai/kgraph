@@ -85,8 +85,8 @@ if [[ "$CONSECUTIVE_READY" -lt 2 ]]; then
   fail "deep readiness timeout"
 fi
 
-docker exec -i "$CONTAINER_NAME" /nodejs/bin/node - <<'NODE'
-const { readFileSync } = require('fs');
+docker exec -i "$CONTAINER_NAME" /nodejs/bin/node --input-type=module - <<'NODE'
+import { readFileSync } from 'node:fs';
 const base = 'http://127.0.0.1:3200';
 const checks = [
   ['GET', '/api/health', 200],
@@ -116,7 +116,10 @@ const login = await fetch(`${base}/api/owner/session`, {
   headers: {'content-type': 'application/json', origin: base},
   body: JSON.stringify({token}),
 });
-if (login.status !== 200) throw new Error(`owner login failed: ${login.status}`);
+if (login.status !== 200) {
+  const error = await login.json().catch(() => null);
+  throw new Error(`owner login failed: ${login.status} ${error?.error ?? 'unknown error'}`);
+}
 const cookie = login.headers.get('set-cookie')?.split(';')[0];
 if (!cookie?.startsWith('doccanvas_owner_session=')) throw new Error('owner session cookie missing');
 const status = await fetch(`${base}/api/owner/status`, {headers: {cookie}}).then(response => response.json());

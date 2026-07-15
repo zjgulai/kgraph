@@ -99,9 +99,27 @@ export function requestHasOwnerSession(req: NextRequest): boolean {
   return verifyOwnerSession(req.cookies.get(OWNER_SESSION_COOKIE)?.value);
 }
 
-function sameOriginRequest(req: NextRequest): boolean {
+function networkRequestOrigin(req: NextRequest): string | undefined {
+  const forwardedProtocol = req.headers.get('x-forwarded-proto');
+  if (forwardedProtocol?.includes(',')) return undefined;
+  const protocol = forwardedProtocol?.trim() || req.nextUrl.protocol.slice(0, -1);
+  if (protocol !== 'http' && protocol !== 'https') return undefined;
+
+  const host = req.headers.get('host')?.trim();
+  if (!host) return req.nextUrl.origin;
+  if (!/^[A-Za-z0-9.[\]:-]+$/.test(host)) return undefined;
+  try {
+    const url = new URL(`${protocol}://${host}`);
+    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) return undefined;
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+export function sameOriginRequest(req: NextRequest): boolean {
   const origin = req.headers.get('origin');
-  if (origin) return origin === req.nextUrl.origin;
+  if (origin) return origin === networkRequestOrigin(req);
   const fetchSite = req.headers.get('sec-fetch-site');
   return fetchSite === null || fetchSite === 'same-origin' || fetchSite === 'none';
 }
