@@ -134,10 +134,13 @@ test('build script assembles an external allowlist context and requires a digest
   assert.match(script, /--metadata-file/);
   assert.match(script, /containerimage\.digest/);
   assert.match(script, /containerimage\.config\.digest/);
-  assert.match(script, /loaded image ID does not match runtime config digest/);
+  assert.match(script, /loaded image repo digest does not match build manifest digest/);
+  assert.match(script, /tar -xOf - manifest\.json/);
+  assert.match(script, /archive config digest does not match build metadata/);
   assert.match(script, /git_commit_sha=/);
   assert.match(script, /manifest_digest=/);
   assert.match(script, /runtime_config_digest=/);
+  assert.match(script, /archive_config_digest=/);
   assert.match(script, /sensitive/i);
   assert.match(script, /docker save/);
   assert.match(script, /app components lib opendesign public documents scripts tests deploy/);

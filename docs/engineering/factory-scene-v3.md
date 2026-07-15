@@ -49,6 +49,7 @@ Owner UI 只在服务端确认 HttpOnly 会话后渲染。mutation 使用 revisi
 - Next 内置 Sharp 与直接依赖版本不一致会在 macOS 同时加载两套 libvips；直接依赖固定为 Next 当前使用的 `0.34.5` 并以 `npm ls sharp --all` 验证去重。
 - WebKit 对完全透明 SVG stroke 的 hover/click 命中不稳定；命中线使用 `0.001` stroke opacity，并以 mouse enter、pointer up 和键盘路径分别验收。
 - 外层 ResizeObserver 不得执行已排队但已失效的自动适配；视口一旦完成变更即关闭 auto-fit，resize timer 在执行时再次核验，避免 hover 后线路坐标漂移。
+- Docker 29 containerd image store 的 `.Id` 可表示 manifest digest，而 Docker 26 传统 store 在 `docker load` 后可能以 config digest 表示 image ID；禁止跨版本直接断言 `.Id == config digest`。候选制作分别校验 Buildx manifest 与本地 RepoDigest，并从最终 `docker save` 归档提取 config blob、重算其 SHA-256 后再与 Buildx runtime config digest 比对。
 
 ## 验证门
 

@@ -83,10 +83,35 @@ RUNTIME_CONFIG_DIGEST="$(node -e '
   process.stdout.write(digest);
 ' "$STAGING_OUTPUT/build-metadata.json")" || fail "build metadata is missing the runtime config digest"
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")"
-[[ "$IMAGE_ID" == "$RUNTIME_CONFIG_DIGEST" ]] || fail "loaded image ID does not match runtime config digest"
+[[ "$IMAGE_ID" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "loaded image ID is invalid"
+if ! docker image inspect --format '{{json .RepoDigests}}' "$IMAGE_TAG" | node -e '
+  let input = "";
+  process.stdin.on("data", (chunk) => input += chunk);
+  process.stdin.on("end", () => {
+    const digests = JSON.parse(input);
+    if (!Array.isArray(digests) || !digests.some((value) => value.endsWith(`@${process.argv[1]}`))) process.exit(1);
+  });
+' "$MANIFEST_DIGEST"; then
+  fail "loaded image repo digest does not match build manifest digest"
+fi
 PLATFORM="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE_TAG")"
 [[ "$PLATFORM" == "linux/amd64" ]] || fail "unexpected image platform: $PLATFORM"
 docker save "$IMAGE_TAG" | gzip -n > "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz"
+ARCHIVE_CONFIG_PATH="$(gzip -dc "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz" | tar -xOf - manifest.json | node -e '
+  let input = "";
+  process.stdin.on("data", (chunk) => input += chunk);
+  process.stdin.on("end", () => {
+    const manifest = JSON.parse(input);
+    const expectedTag = process.argv[1];
+    if (!Array.isArray(manifest) || manifest.length !== 1) process.exit(1);
+    const entry = manifest[0];
+    if (!Array.isArray(entry.RepoTags) || !entry.RepoTags.includes(expectedTag)) process.exit(1);
+    if (!/^blobs\/sha256\/[a-f0-9]{64}$/.test(entry.Config ?? "")) process.exit(1);
+    process.stdout.write(entry.Config);
+  });
+' "$IMAGE_TAG")" || fail "archive manifest does not identify one config blob"
+ARCHIVE_CONFIG_DIGEST="sha256:$(gzip -dc "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz" | tar -xOf - "$ARCHIVE_CONFIG_PATH" | shasum -a 256 | awk '{print $1}')"
+[[ "$ARCHIVE_CONFIG_DIGEST" == "$RUNTIME_CONFIG_DIGEST" ]] || fail "archive config digest does not match build metadata"
 ARCHIVE_SHA="$(shasum -a 256 "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz" | awk '{print $1}')"
 {
   echo "release_id=$RELEASE_ID"
@@ -95,6 +120,7 @@ ARCHIVE_SHA="$(shasum -a 256 "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz" | awk '{prin
   echo "image_id=$IMAGE_ID"
   echo "manifest_digest=$MANIFEST_DIGEST"
   echo "runtime_config_digest=$RUNTIME_CONFIG_DIGEST"
+  echo "archive_config_digest=$ARCHIVE_CONFIG_DIGEST"
   echo "platform=$PLATFORM"
   echo "source_sha256=$SOURCE_SHA"
   echo "archive_sha256=$ARCHIVE_SHA"
