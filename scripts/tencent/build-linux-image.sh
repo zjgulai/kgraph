@@ -31,7 +31,7 @@ cp "$DOCCANVAS_ROOT/.dockerignore" "$CONTEXT_DIR/.dockerignore"
 for file in package.json package-lock.json tsconfig.json next.config.ts postcss.config.mjs ecosystem.config.cjs nginx.conf Dockerfile .dockerignore; do
   cp "$DOCCANVAS_ROOT/$file" "$CONTEXT_DIR/doccanvas/$file"
 done
-for dir in app components lib public documents scripts tests deploy; do
+for dir in app components lib opendesign public documents scripts tests deploy; do
   cp -R "$DOCCANVAS_ROOT/$dir" "$CONTEXT_DIR/doccanvas/$dir"
 done
 

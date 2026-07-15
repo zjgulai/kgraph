@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
 import {
   ArrowRight,
   BookOpenText,
@@ -12,6 +11,8 @@ import {
   Route,
   ShieldCheck,
 } from 'lucide-react';
+import type { FactoryPresentation } from '@/lib/canvas/factory-presentation';
+import { DigitalEmployee } from './DigitalEmployee';
 
 export interface ArchitectureRoomPreview {
   id: string;
@@ -20,6 +21,7 @@ export interface ArchitectureRoomPreview {
   summary: string;
   selected: boolean;
   stageNumber?: number;
+  factory?: FactoryPresentation;
   counts: {
     vibe: number;
     shared: number;
@@ -31,8 +33,12 @@ export interface ArchitectureRoomPreview {
 export interface ArchitectureFloorData {
   floorLabel: string;
   title: string;
-  rooms: ArchitectureRoomPreview[];
   mode: 'lifecycle' | 'module';
+}
+
+export interface ArchitectureRoomData extends ArchitectureRoomPreview {
+  roomIndex: number;
+  factory: FactoryPresentation;
   onSelectRoom: (regionId: string) => void;
 }
 
@@ -66,21 +72,6 @@ export interface ArchitectureResourceData {
   previews: string[];
 }
 
-function ArchitectureHandles() {
-  return (
-    <>
-      <Handle id="top-in" type="target" position={Position.Top} className="architecture-handle" />
-      <Handle id="top-out" type="source" position={Position.Top} className="architecture-handle" />
-      <Handle id="bottom-in" type="target" position={Position.Bottom} className="architecture-handle" />
-      <Handle id="bottom-out" type="source" position={Position.Bottom} className="architecture-handle" />
-      <Handle id="left-in" type="target" position={Position.Left} className="architecture-handle" />
-      <Handle id="left-out" type="source" position={Position.Left} className="architecture-handle" />
-      <Handle id="right-in" type="target" position={Position.Right} className="architecture-handle" />
-      <Handle id="right-out" type="source" position={Position.Right} className="architecture-handle" />
-    </>
-  );
-}
-
 function TrackCount({ label, value, track }: { label: string; value: number; track: 'vibe' | 'shared' | 'pro' }) {
   return (
     <span className={`architecture-track-count architecture-track-count--${track}`}>
@@ -90,13 +81,11 @@ function TrackCount({ label, value, track }: { label: string; value: number; tra
   );
 }
 
-export function ArchitectureFloorNode({ data }: NodeProps) {
-  const d = data as unknown as ArchitectureFloorData;
-  const columns = d.mode === 'module' ? Math.min(4, Math.max(1, d.rooms.length)) : 2;
+export function ArchitectureFloorNode({ data }: { data: ArchitectureFloorData }) {
+  const d = data;
 
   return (
     <section className="architecture-floor" aria-label={`${d.floorLabel} ${d.title}`}>
-      <ArchitectureHandles />
       <header className="architecture-floor__header">
         <div>
           <span className="architecture-kicker">{d.floorLabel}</span>
@@ -104,35 +93,47 @@ export function ArchitectureFloorNode({ data }: NodeProps) {
         </div>
         <Layers3 aria-hidden="true" />
       </header>
-      <div className="architecture-floor__rooms" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
-        {d.rooms.map((room, index) => (
-          <button
-            type="button"
-            key={room.id}
-            className={`architecture-room nodrag nopan${room.selected ? ' is-selected' : ''}`}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              d.onSelectRoom(room.id);
-            }}
-            aria-label={`选择房间 ${room.title}`}
-            aria-pressed={room.selected}
-          >
-            <span className="architecture-room__index">{String(index + 1).padStart(2, '0')}</span>
-            <span className="architecture-room__copy">
-              <span className="architecture-room__eyebrow">{room.eyebrow}</span>
-              <strong className="architecture-room__title">{room.title}</strong>
-              {room.summary && <span className="architecture-room__summary">{room.summary}</span>}
-            </span>
-            <span className="architecture-room__metrics" aria-label="轨道节点统计">
-              <TrackCount label="Vibe" value={room.counts.vibe} track="vibe" />
-              <TrackCount label="共享" value={room.counts.shared} track="shared" />
-              <TrackCount label="Pro" value={room.counts.pro} track="pro" />
-              <span className="architecture-resource-count"><LibraryBig aria-hidden="true" />{room.counts.resources}</span>
-            </span>
-          </button>
-        ))}
-      </div>
+      <div className="architecture-floor__spine" aria-hidden="true" />
+      <div className="architecture-floor__beam" aria-hidden="true" />
+    </section>
+  );
+}
+
+export function ArchitectureRoomNode({ data }: { data: ArchitectureRoomData }) {
+  const room = data;
+  return (
+    <section className="architecture-room-node">
+      <button
+        type="button"
+        className={`architecture-room nodrag nopan${room.selected ? ' is-selected' : ''}`}
+        data-environment={room.factory.environment.id}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          room.onSelectRoom(room.id);
+        }}
+        aria-label={`选择房间 ${room.title}`}
+        aria-pressed={room.selected}
+      >
+        <span className="architecture-room__environment" aria-hidden="true" />
+        <span className="architecture-room__index">{String(room.roomIndex).padStart(2, '0')}</span>
+        <span className="architecture-room__copy">
+          <span className="architecture-room__eyebrow">{room.eyebrow}</span>
+          <strong className="architecture-room__title">{room.title}</strong>
+          {room.summary && <span className="architecture-room__summary">{room.summary}</span>}
+        </span>
+        <DigitalEmployee
+          employee={room.factory.employee}
+          statusLabel={room.factory.statusLabel}
+          compact
+        />
+        <span className="architecture-room__metrics" aria-label="轨道节点统计">
+          <TrackCount label="Vibe" value={room.counts.vibe} track="vibe" />
+          <TrackCount label="共享" value={room.counts.shared} track="shared" />
+          <TrackCount label="Pro" value={room.counts.pro} track="pro" />
+          <span className="architecture-resource-count"><LibraryBig aria-hidden="true" />{room.counts.resources}</span>
+        </span>
+      </button>
     </section>
   );
 }
@@ -144,8 +145,20 @@ const capIcons = {
   annex: BookOpenText,
 };
 
-export function ArchitectureCapNode({ data }: NodeProps) {
-  const d = data as unknown as ArchitectureCapData;
+export function ArchitectureCapNode({ data }: { data: ArchitectureCapData }) {
+  const d = data;
+  if (d.kind === 'roof') {
+    return (
+      <section className="architecture-cap architecture-cap--roof" aria-label="产品工厂工业檐口">
+        <div className="factory-roof" aria-hidden="true">
+          <span className="factory-roof__cornice" />
+          <span className="factory-roof__label">LIVING PRODUCT FACTORY</span>
+          <span className="factory-roof__vents"><i /><i /><i /></span>
+          <span className="factory-roof__depth" />
+        </div>
+      </section>
+    );
+  }
   const Icon = capIcons[d.kind];
   const interactive = Boolean(d.roomId && d.onSelectRoom);
   const content = (
@@ -168,7 +181,6 @@ export function ArchitectureCapNode({ data }: NodeProps) {
 
   return (
     <section className={`architecture-cap architecture-cap--${d.kind}`}>
-      <ArchitectureHandles />
       {interactive ? (
         <button
           type="button"
@@ -188,8 +200,8 @@ export function ArchitectureCapNode({ data }: NodeProps) {
   );
 }
 
-export function ArchitectureLaneNode({ data }: NodeProps) {
-  const d = data as unknown as ArchitectureLaneData;
+export function ArchitectureLaneNode({ data }: { data: ArchitectureLaneData }) {
+  const d = data;
   return (
     <section className={`architecture-lane architecture-lane--${d.track}`}>
       <header>
@@ -201,8 +213,8 @@ export function ArchitectureLaneNode({ data }: NodeProps) {
   );
 }
 
-export function ArchitectureRoomGroupNode({ data }: NodeProps) {
-  const d = data as unknown as ArchitectureRoomGroupData;
+export function ArchitectureRoomGroupNode({ data }: { data: ArchitectureRoomGroupData }) {
+  const d = data;
   return (
     <section className="architecture-room-group">
       <header>
@@ -218,8 +230,8 @@ export function ArchitectureRoomGroupNode({ data }: NodeProps) {
   );
 }
 
-export function ArchitectureResourceNode({ data }: NodeProps) {
-  const d = data as unknown as ArchitectureResourceData;
+export function ArchitectureResourceNode({ data }: { data: ArchitectureResourceData }) {
+  const d = data;
   return (
     <section className="architecture-resource-node">
       <LibraryBig aria-hidden="true" />

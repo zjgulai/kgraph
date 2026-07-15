@@ -6,6 +6,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ArchitectureRegionReader } from '../components/canvas/ArchitectureRegionReader';
 import { MobileArchitectureView } from '../components/canvas/MobileArchitectureView';
+import { FACTORY_EMPLOYEE_ROLES, FACTORY_ENVIRONMENTS } from '../lib/canvas/factory-presentation';
 import type { DocNode } from '../lib/parser/types';
 
 const root = resolve(import.meta.dirname, '..');
@@ -16,6 +17,14 @@ const cardNode = read('components/canvas/CardNode.tsx');
 const mobileView = read('components/canvas/MobileArchitectureView.tsx');
 const regionReader = read('components/canvas/ArchitectureRegionReader.tsx');
 const canvasViewer = read('components/canvas/CanvasViewer.tsx');
+const sceneCanvas = read('components/canvas/FactorySceneCanvas.tsx');
+const sceneModel = read('lib/canvas/factory-scene.ts');
+const layoutHook = read('components/canvas/useFactoryLayout.ts');
+const layoutWorker = read('lib/canvas/factory-layout.worker.ts');
+const factoryHeader = read('components/canvas/FactoryHeader.tsx');
+const digitalEmployee = read('components/canvas/DigitalEmployee.tsx');
+const ownerInspector = read('components/canvas/FactoryOwnerInspector.tsx');
+const css = read('app/globals.css');
 
 function fixtureNode(id: string, title: string, summary: string): DocNode {
   return {
@@ -35,13 +44,84 @@ function fixtureNode(id: string, title: string, summary: string): DocNode {
 test('overview room surfaces select a room and show one bounded summary line', () => {
   assert.match(architectureNodes, /onSelectRoom: \(regionId: string\) => void/);
   assert.match(architectureNodes, /selected: boolean/);
-  assert.match(architectureNodes, /d\.onSelectRoom\(room\.id\)/);
+  assert.match(architectureNodes, /export function ArchitectureRoomNode/);
+  assert.match(architectureNodes, /room\.onSelectRoom\(room\.id\)/);
+  assert.doesNotMatch(architectureNodes, /ArchitectureHandles|<Handle/u);
   assert.match(architectureNodes, /aria-label=\{`选择房间 \$\{room\.title\}`\}/);
   assert.match(architectureNodes, /aria-pressed=\{room\.selected\}/);
   assert.match(architectureNodes, /room\.selected \? ' is-selected' : ''/);
   assert.match(architectureNodes, /architecture-room__summary/);
   assert.match(architectureNodes, /\{room\.summary\}/);
   assert.doesNotMatch(architectureNodes, /aria-label=\{`进入 \$\{room\.title\}`\}/);
+});
+
+test('desktop canvas renders routed SVG pipelines with explicit relation data', () => {
+  assert.match(canvasViewer, /<FactorySceneCanvas/);
+  assert.doesNotMatch(canvasViewer, /ReactFlow|@xyflow\/react/u);
+  assert.match(sceneCanvas, /factory-scene-edge__line/);
+  assert.match(sceneCanvas, /markerEnd=\{`url\(#\$\{markerId\(edge\.kind\)\}\)`\}/);
+  assert.match(sceneCanvas, /factory-scene-edge__tracer/);
+  assert.match(sceneCanvas, /<animateMotion dur="260ms" repeatCount="1"/);
+  assert.match(sceneModel, /waypointPath/);
+  assert.match(sceneModel, /routeOrthogonalEdge/);
+});
+
+test('factory layout leaves the main thread through a module worker and retains a fail-fast fallback', () => {
+  assert.match(canvasViewer, /useFactoryLayout/);
+  assert.match(layoutHook, /new Worker\(/);
+  assert.match(layoutHook, /factory-layout\.worker\.ts/);
+  assert.match(layoutWorker, /computeArchitectureLayout/);
+  assert.match(layoutHook, /Factory layout failed in worker and fallback/);
+});
+
+test('canvas stylesheet consumes semantic factory tokens without naked hexadecimal colors', () => {
+  assert.doesNotMatch(css, /#[0-9a-f]{3,8}\b/iu);
+  assert.match(css, /var\(--factory-pipeline-main\)/);
+  assert.match(css, /var\(--factory-canvas\)/);
+});
+
+test('Owner portrait flow previews the 4:5 crop before confirmed server normalization', () => {
+  assert.match(ownerInspector, /URL\.createObjectURL\(file\)/);
+  assert.match(ownerInspector, /4:5 裁剪预览/);
+  assert.match(ownerInspector, /attention 对焦生成最终 800×1000 WebP/);
+  assert.match(ownerInspector, /确认上传/);
+  assert.match(ownerInspector, /URL\.revokeObjectURL/);
+  assert.match(css, /factory-owner-assets__preview/);
+  assert.match(css, /aspect-ratio: 4 \/ 5/);
+});
+
+test('desktop factory owns a readable lintel outside the scene zoom layer', () => {
+  assert.match(canvasViewer, /<FactoryHeader/);
+  assert.ok(
+    canvasViewer.indexOf('<FactoryHeader') < canvasViewer.indexOf('<FactorySceneCanvas\n'),
+    'factory lintel must precede the zoom layer',
+  );
+  assert.match(factoryHeader, /semanticTitleLines/);
+  assert.match(factoryHeader, /<span>\{primaryTitle\}<\/span>/);
+  assert.match(factoryHeader, /LIVING PRODUCT FACTORY/);
+  assert.match(css, /\.factory-header__title h1[\s\S]*?font-size:\s*clamp\(1\.45rem,[^;]+1\.9rem\)/u);
+});
+
+test('overview rooms render deterministic digital employees over semantic room environments', () => {
+  assert.match(canvasViewer, /buildFactoryPresentationMap/);
+  assert.match(architectureNodes, /DigitalEmployee/);
+  assert.match(architectureNodes, /data-environment=\{room\.factory\.environment\.id\}/);
+  assert.match(digitalEmployee, /data-portrait-key=\{employee\?\.portraitKey/);
+  assert.match(digitalEmployee, /employee\?\.roleTitle/);
+  assert.match(digitalEmployee, /employee\?\.responsibility/);
+  assert.match(css, /\.architecture-room\[data-environment="security-control"\]/u);
+  assert.match(css, /\.architecture-room__environment/u);
+});
+
+test('roof is a restrained 72px industrial cornice and room text remains front-facing in 2.5D', () => {
+  assert.match(architectureNodes, /d\.kind === 'roof'/);
+  assert.match(architectureNodes, /factory-roof__cornice/);
+  assert.match(architectureNodes, /factory-roof__depth/);
+  assert.match(css, /\.factory-roof__cornice/u);
+  assert.match(read('lib/canvas/layout-engine.ts'), /const ROOF_HEIGHT = 72/);
+  assert.match(css, /\.architecture-floor::before/u);
+  assert.match(css, /\.architecture-room:hover[\s\S]*?translateY\(-2px\)/u);
+  assert.doesNotMatch(css, /\.architecture-room(?::hover)?[^}]*rotate[XYZ]?\(/u);
 });
 
 test('content cards accept presentation copy and use a textual Stage label', () => {
@@ -117,6 +197,7 @@ test('region reader bounds provenance and prioritizes a search hit beyond the de
     },
     highlightedNodeId: 'node-4',
     onEnterRoom: () => {},
+    onOpenNode: () => {},
     onClose: () => {},
   }));
 
@@ -131,6 +212,7 @@ test('region reader bounds provenance and prioritizes a search hit beyond the de
   assert.match(markup, /不应出现的第四摘要/);
   assert.match(markup, /is-highlighted/);
   assert.match(markup, /aria-current="true"/);
+  assert.match(markup, /打开节点 第四节点/);
   assert.match(markup, /进入完整房间/);
   assert.match(markup, /aria-label="关闭房间速读"/);
   assert.equal((markup.match(/需求研究/g) ?? []).length, 1);
@@ -144,14 +226,63 @@ test('search highlight continues from the reader into focused desktop and mobile
   assert.match(mobileView, /className=\{highlighted \? 'is-highlighted' : undefined\}/);
 });
 
-test('mobile overview exposes and automatically expands the selected room', () => {
-  assert.match(mobileView, /room\.selected \? 'is-selected' : undefined/);
+test('mobile overview preserves module relations in a vertical process rail', () => {
+  assert.match(mobileView, /mobile-process-rail/);
+  assert.match(mobileView, /relations\.filter\(relation => relation\.source === room\.id\)/);
+  assert.match(mobileView, /data-kind=\{relation\.kind\}/);
+  assert.match(mobileView, /room\.selected \? ' is-selected' : ''/);
   assert.match(mobileView, /aria-pressed=\{room\.selected\}/);
-  assert.match(mobileView, /selectedFloor/);
-  assert.match(mobileView, /setOpenFloor\(selectedFloor\.id\)/);
-  assert.match(mobileView, /floors\[floors\.length - 1\]/);
-  assert.match(mobileView, /onClick=\{\(\) => setOpenFloor\(floor\.id\)\}/);
-  assert.doesNotMatch(mobileView, /setOpenFloor\(open \? '' : floor\.id\)/);
+  assert.doesNotMatch(mobileView, /setOpenFloor|mobile-floor__toggle/u);
+});
+
+test('mobile rooms expose the same digital employee, status, and work counts as desktop', () => {
+  const employee = FACTORY_EMPLOYEE_ROLES[0];
+  const factory = {
+    regionId: 'room-1',
+    roomCode: 'STAGE 01',
+    employee,
+    environment: FACTORY_ENVIRONMENTS[employee.environmentKey],
+    status: employee.defaultStatus,
+    statusLabel: '待验证',
+    accentTone: employee.accentTone,
+  } as const;
+  const markup = renderToStaticMarkup(React.createElement(MobileArchitectureView, {
+    documentTitle: '产品工厂',
+    version: 'v1',
+    floors: [{
+      id: 'floor-1',
+      label: 'FLOOR 01',
+      title: '生命周期层',
+      rooms: [{
+        id: 'room-1',
+        eyebrow: 'STAGE 01',
+        title: '机会与需求',
+        summary: '识别真实问题',
+        selected: true,
+        factory,
+        counts: { vibe: 2, shared: 3, pro: 1, resources: 4 },
+      }],
+    }],
+    presentationByNodeId: {},
+    onOpenRoom: () => {},
+    onBack: () => {},
+    onOpenNode: () => {},
+  }));
+
+  assert.match(markup, /林序/);
+  assert.match(markup, /产品导航顾问/);
+  assert.match(markup, /待验证/);
+  assert.match(markup, /6 个内容节点/);
+  assert.match(markup, /4 个资源/);
+  assert.match(mobileView, /<DigitalEmployee/);
+});
+
+test('mobile factory uses 28–32px headings, viewport-safe width, and 44px controls', () => {
+  const mobileMedia = css.slice(css.lastIndexOf('@media (max-width: 767px)'));
+  assert.match(mobileMedia, /\.mobile-architecture\s*\{[\s\S]*?max-width:\s*100%[\s\S]*?overflow-x:\s*clip/u);
+  assert.match(mobileMedia, /\.mobile-architecture__hero h1,[\s\S]*?font-size:\s*clamp\(1\.75rem,[^;]+2rem\)/u);
+  assert.match(mobileMedia, /\.mobile-canvas-toolbar a,[\s\S]*?width:\s*44px[\s\S]*?height:\s*44px/u);
+  assert.match(mobileMedia, /\.mobile-process-room > button[\s\S]*?min-height:\s*(?:[4-9][4-9]|[1-9]\d{2,})px/u);
 });
 
 test('mobile search selects the hit track once and then allows manual track changes', () => {

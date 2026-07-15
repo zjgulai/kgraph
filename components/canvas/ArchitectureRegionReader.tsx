@@ -23,6 +23,7 @@ interface Props {
   presentations: Readonly<Record<string, ArchitectureRegionReaderPresentation>>;
   highlightedNodeId?: string;
   onEnterRoom: (regionId: string) => void;
+  onOpenNode: (nodeId: string) => void;
   onClose: () => void;
 }
 
@@ -31,6 +32,7 @@ export function ArchitectureRegionReader({
   presentations,
   highlightedNodeId,
   onEnterRoom,
+  onOpenNode,
   onClose,
 }: Props) {
   const prioritizedPreviewNodeIds = highlightedNodeId && presentations[highlightedNodeId]
@@ -85,8 +87,14 @@ export function ArchitectureRegionReader({
                   className={highlighted ? 'is-highlighted' : undefined}
                   aria-current={highlighted ? true : undefined}
                 >
-                  <strong>{presentation.displayTitle}</strong>
-                  {presentation.displaySummary && <span>{presentation.displaySummary}</span>}
+                  <button
+                    type="button"
+                    onClick={() => onOpenNode(nodeId)}
+                    aria-label={`打开节点 ${presentation.displayTitle}`}
+                  >
+                    <strong>{presentation.displayTitle}</strong>
+                    {presentation.displaySummary && <span>{presentation.displaySummary}</span>}
+                  </button>
                 </li>
               );
             })}

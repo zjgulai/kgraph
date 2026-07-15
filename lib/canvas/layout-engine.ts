@@ -1,7 +1,8 @@
 /**
  * Deterministic layouts for the architecture-house overview and focused room.
- * Overview deliberately lays out aggregate floors instead of every Markdown
- * node. Focused mode expands one room into three measured track lanes.
+ * Overview lays out structural floors plus independently connectable rooms.
+ * Focused mode expands one room into measured track lanes and projects the
+ * source graph through a deterministic orthogonal router.
  */
 import type {
   ArchitectureFloor,
@@ -10,6 +11,12 @@ import type {
   ArchitectureViewModel,
 } from './architecture-view-model';
 import type { DocEdge, DocNode } from '../parser/types';
+import {
+  routeOrthogonalEdge,
+  type OrthogonalPoint,
+  type OrthogonalRectangle,
+  type OrthogonalRelation,
+} from './orthogonal-router';
 
 export type ArchitectureLayoutNodeKind =
   | 'roof'
@@ -41,7 +48,12 @@ export interface ArchitectureLayoutEdge {
   id: string;
   source: string;
   target: string;
-  kind: 'lifecycle' | 'module-sequence';
+  kind: OrthogonalRelation;
+  sourceHandle: string;
+  targetHandle: string;
+  marker: 'arrow-closed';
+  waypoints: OrthogonalPoint[];
+  label?: string;
   animated: false;
 }
 
@@ -64,13 +76,19 @@ export interface ArchitectureLayoutOptions {
 
 const OVERVIEW_WIDTH = 1840;
 const TABLET_OVERVIEW_WIDTH = 1000;
-const ROOF_HEIGHT = 128;
-const FLOOR_HEIGHT = 190;
+const ROOF_HEIGHT = 72;
+const FLOOR_HEIGHT = 224;
 const FOUNDATION_HEIGHT = 112;
 const AUXILIARY_HEIGHT = 170;
 const SECTION_GAP = 24;
 const FLOOR_GAP = 16;
 const COLUMN_GAP = 24;
+const FLOOR_INSET_X = 28;
+const FLOOR_ROOM_TOP = 48;
+const FLOOR_ROOM_HEIGHT = 158;
+// Leave a visible pipeline body ahead of the 8–10px SVG marker. The previous
+// 18px room gap allowed the marker to consume nearly the whole connection.
+const ROOM_GAP = 32;
 
 const FOCUS_PADDING = 64;
 const FOCUS_HEADER_HEIGHT = 64;
@@ -117,21 +135,167 @@ function overviewFloorNode(
   };
 }
 
-function macroEdges(
-  model: ArchitectureViewModel,
-  floorsInLifecycleOrder: ArchitectureFloor[],
-  foyer: ArchitectureRegion | undefined,
-): ArchitectureLayoutEdge[] {
-  if (model.mode !== 'lifecycle') return [];
-  const orderedIds = [foyer?.id, ...floorsInLifecycleOrder.map(floor => floor.id)]
-    .filter((id): id is string => Boolean(id));
-  return orderedIds.slice(1).map((target, index) => ({
-    id: `edge:architecture:${orderedIds[index]}:${target}`,
-    source: orderedIds[index],
-    target,
-    kind: 'lifecycle' as const,
-    animated: false as const,
+function overviewRoomNodes(
+  floor: ArchitectureFloor,
+  regionsById: ReadonlyMap<string, ArchitectureRegion>,
+  overviewWidth: number,
+): ArchitectureLayoutNode[] {
+  const regions = floor.regionIds
+    .map(regionId => regionsById.get(regionId))
+    .filter((region): region is ArchitectureRegion => Boolean(region));
+  if (regions.length === 0) return [];
+  const width = (
+    overviewWidth
+    - FLOOR_INSET_X * 2
+    - ROOM_GAP * Math.max(0, regions.length - 1)
+  ) / regions.length;
+
+  return regions.map((region, index) => ({
+    id: region.id,
+    kind: 'room',
+    position: {
+      x: FLOOR_INSET_X + index * (width + ROOM_GAP),
+      y: FLOOR_ROOM_TOP,
+    },
+    width,
+    height: FLOOR_ROOM_HEIGHT,
+    regionId: region.id,
+    regionIds: [region.id],
+    parentId: floor.id,
+    draggable: false,
   }));
+}
+
+function absoluteRectanglesById(
+  nodes: readonly ArchitectureLayoutNode[],
+): ReadonlyMap<string, OrthogonalRectangle> {
+  const nodesById = new Map(nodes.map(node => [node.id, node]));
+  const positions = new Map<string, { x: number; y: number }>();
+
+  const positionOf = (node: ArchitectureLayoutNode): { x: number; y: number } => {
+    const cached = positions.get(node.id);
+    if (cached) return cached;
+    const parent = node.parentId ? nodesById.get(node.parentId) : undefined;
+    const parentPosition = parent ? positionOf(parent) : { x: 0, y: 0 };
+    const position = {
+      x: parentPosition.x + node.position.x,
+      y: parentPosition.y + node.position.y,
+    };
+    positions.set(node.id, position);
+    return position;
+  };
+
+  return new Map(nodes.map(node => {
+    const position = positionOf(node);
+    return [node.id, {
+      id: node.id,
+      x: position.x,
+      y: position.y,
+      width: node.width,
+      height: node.height,
+    }];
+  }));
+}
+
+function createLayoutEdge(
+  source: ArchitectureLayoutNode,
+  target: ArchitectureLayoutNode,
+  rectangles: ReadonlyMap<string, OrthogonalRectangle>,
+  obstacles: readonly OrthogonalRectangle[],
+  relation: OrthogonalRelation,
+  index: number,
+  options: {
+    preferredAxis?: 'horizontal' | 'vertical';
+    trunk?: { axis: 'x' | 'y'; coordinate: number };
+    label?: string;
+  } = {},
+): ArchitectureLayoutEdge {
+  const sourceRectangle = rectangles.get(source.id);
+  const targetRectangle = rectangles.get(target.id);
+  if (!sourceRectangle || !targetRectangle) {
+    throw new Error(`Missing pipeline geometry for ${source.id} -> ${target.id}.`);
+  }
+  const id = `edge:architecture:${relation}:${source.id}:${target.id}`;
+  const route = routeOrthogonalEdge({
+    id,
+    source: sourceRectangle,
+    target: targetRectangle,
+    obstacles,
+    relation,
+    preferredAxis: options.preferredAxis,
+    trunk: options.trunk,
+    channelIndex: index,
+  });
+  return {
+    id,
+    source: source.id,
+    target: target.id,
+    kind: relation,
+    sourceHandle: route.sourceHandle,
+    targetHandle: route.targetHandle,
+    marker: route.marker,
+    waypoints: route.waypoints,
+    label: options.label,
+    animated: false,
+  };
+}
+
+function overviewEdges(
+  model: ArchitectureViewModel,
+  nodes: readonly ArchitectureLayoutNode[],
+  overviewWidth: number,
+): ArchitectureLayoutEdge[] {
+  const nodeById = new Map(nodes.map(node => [node.id, node]));
+  const rectangles = absoluteRectanglesById(nodes);
+  const obstacles = nodes
+    .filter(node => ['room', 'foyer', 'annex'].includes(node.kind))
+    .map(node => rectangles.get(node.id))
+    .filter((rectangle): rectangle is OrthogonalRectangle => Boolean(rectangle));
+  const rooms = model.regions
+    .filter(region => region.kind === 'room')
+    .sort((left, right) => left.order - right.order)
+    .map(region => nodeById.get(region.id))
+    .filter((node): node is ArchitectureLayoutNode => Boolean(node));
+  const foyer = model.mode === 'lifecycle'
+    ? nodes.find(node => node.kind === 'foyer')
+    : undefined;
+  const ordered = foyer ? [foyer, ...rooms] : rooms;
+  const edges = ordered.slice(1).map((target, index) => {
+    const source = ordered[index];
+    const sameFloor = source.parentId !== undefined && source.parentId === target.parentId;
+    return createLayoutEdge(
+      source,
+      target,
+      rectangles,
+      obstacles,
+      'flow',
+      index,
+      {
+        preferredAxis: sameFloor ? 'horizontal' : 'vertical',
+        trunk: !sameFloor && source.kind === 'room' && target.kind === 'room'
+          ? { axis: 'x', coordinate: overviewWidth / 2 }
+          : undefined,
+      },
+    );
+  });
+
+  if (model.mode === 'module') {
+    const source = nodeById.get('region:module:security-governance');
+    const target = nodeById.get('region:module:boundaries-evolution');
+    if (source && target) {
+      edges.push(createLayoutEdge(
+        source,
+        target,
+        rectangles,
+        obstacles,
+        'governance',
+        edges.length,
+        { preferredAxis: 'vertical', label: '治理约束' },
+      ));
+    }
+  }
+
+  return edges;
 }
 
 export function computeArchitectureOverviewLayout(
@@ -144,6 +308,7 @@ export function computeArchitectureOverviewLayout(
   const foyer = model.regions.find(region => region.kind === 'foyer');
   const foundation = model.regions.find(region => region.kind === 'foundation');
   const annex = model.regions.find(region => region.kind === 'annex');
+  const regionsById = new Map(model.regions.map(region => [region.id, region]));
   let y = 0;
 
   if (roof) {
@@ -157,6 +322,7 @@ export function computeArchitectureOverviewLayout(
     : floorsInLifecycleOrder;
   floorsInVisualOrder.forEach((floor, index) => {
     nodes.push(overviewFloorNode(floor, { x: 0, y }, overviewWidth));
+    nodes.push(...overviewRoomNodes(floor, regionsById, overviewWidth));
     y += FLOOR_HEIGHT;
     if (index < floorsInVisualOrder.length - 1) y += FLOOR_GAP;
   });
@@ -210,13 +376,52 @@ export function computeArchitectureOverviewLayout(
   return {
     view: 'overview',
     nodes,
-    edges: macroEdges(model, floorsInLifecycleOrder, foyer),
+    edges: overviewEdges(model, nodes, overviewWidth),
     bounds: { x: 0, y: 0, width: overviewWidth, height: y },
   };
 }
 
 function laneId(regionId: string, track: ArchitectureTrack): string {
   return `lane:${regionId}:${track}`;
+}
+
+function sourceEdgeRelation(edge: DocEdge): OrthogonalRelation {
+  if (edge.type === 'reference') return 'resource';
+  if (edge.type === 'track' || edge.type === 'expansion') return 'dependency';
+  return 'flow';
+}
+
+function focusedEdges(
+  model: ArchitectureViewModel,
+  nodes: readonly ArchitectureLayoutNode[],
+): ArchitectureLayoutEdge[] {
+  const visibleNodes = nodes.filter(node => node.kind === 'content');
+  const visibleNodeById = new Map(visibleNodes.map(node => [node.id, node]));
+  const rectangles = absoluteRectanglesById(nodes);
+  const obstacles = visibleNodes
+    .map(node => rectangles.get(node.id))
+    .filter((rectangle): rectangle is OrthogonalRectangle => Boolean(rectangle));
+
+  return model.sourceEdges
+    .filter(edge => visibleNodeById.has(edge.source) && visibleNodeById.has(edge.target))
+    .map((edge, index) => {
+      const source = visibleNodeById.get(edge.source)!;
+      const target = visibleNodeById.get(edge.target)!;
+      const relation = sourceEdgeRelation(edge);
+      const layoutEdge = createLayoutEdge(
+        source,
+        target,
+        rectangles,
+        obstacles,
+        relation,
+        index % 7,
+        {
+          preferredAxis: source.parentId !== target.parentId ? 'horizontal' : undefined,
+          label: edge.label,
+        },
+      );
+      return { ...layoutEdge, id: `edge:focus:${edge.id}` };
+    });
 }
 
 export function computeArchitectureFocusedLayout(
@@ -326,7 +531,7 @@ export function computeArchitectureFocusedLayout(
     view: 'focused-region',
     regionId: region.id,
     nodes,
-    edges: [],
+    edges: focusedEdges(model, nodes),
     bounds: { x: 0, y: 0, width: focusWidth, height: focusHeight },
   };
 }

@@ -73,6 +73,8 @@ export interface ArchitectureViewModel {
   stageHeadingIds: string[];
   floors: ArchitectureFloor[];
   regions: ArchitectureRegion[];
+  /** Parsed source relationships retained for deterministic focused-room routing. */
+  sourceEdges: DocEdge[];
   nodeRegionId: Record<string, string>;
   nodePresentationCopy: Record<string, { title: string; summary: string }>;
 }
@@ -745,7 +747,7 @@ function moduleProjection(document: ArchitectureDocument): {
       const duplicateIndex = (titleOccurrences.get(baseTitle) ?? 0) + 1;
       titleOccurrences.set(baseTitle, duplicateIndex);
       current = {
-        id: `region:module:${padOrdinal(ordinal)}`,
+        id: `region:module:${node.id}`,
         kind: 'room',
         title: productizeModuleTitle(node.title, ordinal, duplicateIndex),
         summary: '',
@@ -849,6 +851,7 @@ export function buildArchitectureViewModel(document: ArchitectureDocument): Arch
     stageHeadingIds: document.nodes.filter(isStageHeading).map(node => node.id),
     floors: projection.floors,
     regions: projection.regions,
+    sourceEdges: document.edges.map(edge => ({ ...edge })),
     nodeRegionId: projection.nodeRegionId,
     nodePresentationCopy: buildNodePresentationCopy(document, projection),
   };

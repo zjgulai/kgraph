@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { buildArchitectureViewModel } from '../lib/canvas/architecture-view-model';
 import { parseMarkdownToGraph } from '../lib/parser/markdown-to-graph';
 
 const MARKDOWN = `# Doc
@@ -77,4 +78,57 @@ test('does not promote decimal subsection headings into duplicate stage zero nod
   const stageHeadings = graph.nodes.filter(node => node.metadata.isStageHeading === true);
   assert.deepEqual(stageHeadings.map(node => node.stageNumber), [0, 1]);
   assert.equal(graph.edges.filter(edge => edge.id.startsWith('edge-stage-')).length, 2);
+});
+
+test('keeps unchanged node, reference, and module ids stable when an earlier module is inserted', () => {
+  const before = parseMarkdownToGraph(`# Doc
+
+## Alpha
+
+### Keep
+
+Use **Mastra** here.
+
+## Omega
+
+### Last
+
+Ship it.
+`, 'stable-fixture', '/stable-fixture.md');
+  const after = parseMarkdownToGraph(`# Doc
+
+## Alpha
+
+### Keep
+
+Use **Mastra** here.
+
+## Inserted
+
+### New
+
+New work.
+
+## Omega
+
+### Last
+
+Ship it.
+`, 'stable-fixture', '/stable-fixture.md');
+
+  const nodeId = (graph: typeof before, title: string) => {
+    const node = graph.nodes.find(candidate => candidate.title === title);
+    assert.ok(node, `missing node: ${title}`);
+    return node.id;
+  };
+  assert.equal(nodeId(after, 'Keep'), nodeId(before, 'Keep'));
+  assert.equal(nodeId(after, 'Last'), nodeId(before, 'Last'));
+  assert.equal(nodeId(after, 'Mastra'), nodeId(before, 'Mastra'));
+
+  const moduleId = (graph: typeof before, sourceTitle: string) => {
+    const region = buildArchitectureViewModel(graph).regions.find(candidate => candidate.sourceTitle === sourceTitle);
+    assert.ok(region, `missing module: ${sourceTitle}`);
+    return region.id;
+  };
+  assert.equal(moduleId(after, 'Omega'), moduleId(before, 'Omega'));
 });

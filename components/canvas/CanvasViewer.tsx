@@ -1,32 +1,20 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import {
-  Background,
-  BackgroundVariant,
-  Controls,
-  getViewportForBounds,
-  MiniMap,
-  ReactFlow,
-  useEdgesState,
-  useNodesState,
-  useReactFlow,
-  type Edge,
-  type Node,
-} from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-import { toPng } from 'html-to-image';
+import { toPng, toSvg } from 'html-to-image';
 import {
   ArrowLeft,
   Download,
-  FileText,
+  FileCode2,
   Home,
   ImageDown,
+  History,
+  LayoutDashboard,
+  ListPlus,
   RotateCcw,
   Save,
   Search,
-  ShieldAlert,
 } from 'lucide-react';
 import type {
   CanvasState,
@@ -43,13 +31,14 @@ import {
   type ArchitectureViewModel,
 } from '@/lib/canvas/architecture-view-model';
 import {
-  computeArchitectureLayout,
   type ArchitectureLayoutNode,
 } from '@/lib/canvas/layout-engine';
 import {
-  createCanvasState,
+  createCanvasStateForSave,
   getCanvasStateLocalStorageKey,
   getLegacyCanvasStateLocalStorageKey,
+  getPreviousCanvasStateLocalStorageKey,
+  isCanvasStateV2,
   resetCanvasState,
   restoreCanvasState,
 } from '@/lib/canvas/canvas-state';
@@ -62,51 +51,74 @@ import {
   type RegionPresentation,
 } from '@/lib/canvas/document-presentation';
 import { cleanPresentationText, hasPresentationTextLeak } from '@/lib/canvas/presentation-text';
-import { isPngPaintSurfaceReady, selectPngPixelRatio } from '@/lib/canvas/png-export';
+import {
+  buildFactoryPresentationMap,
+  type FactoryPresentation,
+} from '@/lib/canvas/factory-presentation';
+import {
+  resolveSearchNavigationTarget,
+  type SearchNavigationIndex,
+  type SearchNavigationTarget,
+} from '@/lib/canvas/search-navigation';
+import { selectPngPixelRatio } from '@/lib/canvas/png-export';
+import type { FactorySceneEdge, FactorySceneNode } from '@/lib/canvas/factory-scene';
+import type { DocumentMutation } from '@/lib/canvas/document-mutation-types';
+import {
+  applyArchitectureSidecar,
+  parsePresentationSidecar,
+  type DocumentPresentationSidecar,
+} from '@/lib/canvas/presentation-sidecar';
 import {
   ArchitectureCapNode,
   ArchitectureFloorNode,
   ArchitectureLaneNode,
   ArchitectureResourceNode,
+  ArchitectureRoomNode,
   ArchitectureRoomGroupNode,
   type ArchitectureCapData,
   type ArchitectureFloorData,
+  type ArchitectureLaneData,
+  type ArchitectureResourceData,
+  type ArchitectureRoomData,
+  type ArchitectureRoomGroupData,
   type ArchitectureRoomPreview,
 } from './ArchitectureNodes';
+import {
+  FactorySceneCanvas,
+  type FactorySceneCanvasHandle,
+} from './FactorySceneCanvas';
 import { MobileArchitectureView, type MobileArchitectureFloor } from './MobileArchitectureView';
 import { CardNode } from './CardNode';
 import { NodeDetailSheet } from './NodeDetailSheet';
 import { SaveIndicator } from './SaveIndicator';
+import { ExportIndicator, type ExportFeedbackStatus } from './ExportIndicator';
 import { SearchPanel } from './SearchPanel';
 import { ArchitectureRegionReader } from './ArchitectureRegionReader';
+import { FactoryHeader } from './FactoryHeader';
+import { FactoryRelationInspector } from './FactoryRelationInspector';
+import { OwnerSessionControl } from './OwnerSessionControl';
+import {
+  FactoryOwnerInspector,
+  type FactoryOwnerInspectorTab,
+} from './FactoryOwnerInspector';
+import { useFactoryLayout } from './useFactoryLayout';
 
-const nodeTypes = {
-  architectureCap: ArchitectureCapNode,
-  architectureFloor: ArchitectureFloorNode,
-  architectureLane: ArchitectureLaneNode,
-  architectureResource: ArchitectureResourceNode,
-  architectureRoomGroup: ArchitectureRoomGroupNode,
-  cardNode: CardNode,
-};
+interface FactoryProjectedNode {
+  id: string;
+  type: 'architectureCap' | 'architectureFloor' | 'architectureLane' | 'architectureResource' | 'architectureRoom' | 'architectureRoomGroup' | 'cardNode';
+  data: Record<string, unknown>;
+  selected: boolean;
+}
 
 interface Props {
   document: DocCanvasType;
+  documentHash: string;
+  presentation: DocumentPresentationSidecar;
   writePolicy: WritePolicy;
 }
 
 type FileBackedDocument = DocCanvasType & {
   _file?: { mtime: string; path: string; bytes: number };
-};
-
-const NODE_COLORS: Record<DocNode['type'], string> = {
-  document: '#355C45',
-  section: '#4F5F9B',
-  subsection: '#667568',
-  track: '#147D78',
-  step: '#2D6B47',
-  tool: '#637064',
-  prompt: '#4F5F9B',
-  principle: '#A4493D',
 };
 
 function metadataString(node: DocNode, key: string): string | undefined {
@@ -133,6 +145,30 @@ function isParsedDocument(value: unknown): value is DocCanvasType {
     && typeof candidate.version === 'string'
     && Array.isArray(candidate.nodes)
     && Array.isArray(candidate.edges);
+}
+
+interface MutationResponse {
+  document: DocCanvasType;
+  presentation: DocumentPresentationSidecar;
+  revision: number;
+  mutationId: string;
+}
+
+function parseMutationResponse(value: unknown): MutationResponse | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Record<string, unknown>;
+  if (!isParsedDocument(candidate.document)) return null;
+  if (typeof candidate.revision !== 'number' || typeof candidate.mutationId !== 'string') return null;
+  try {
+    return {
+      document: candidate.document,
+      presentation: parsePresentationSidecar(candidate.presentation),
+      revision: candidate.revision,
+      mutationId: candidate.mutationId,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function assertExportTextSafe(root: HTMLElement): void {
@@ -162,6 +198,7 @@ function roomPreview(
   region: ArchitectureRegion,
   selectedRegionId: string | null = null,
   presentation?: RegionPresentation,
+  factory?: FactoryPresentation,
 ): ArchitectureRoomPreview {
   const count = (track: 'vibe' | 'shared' | 'pro') =>
     region.trackSummaries.find(summary => summary.track === track)?.count ?? 0;
@@ -174,6 +211,7 @@ function roomPreview(
     summary: presentation?.displaySummary ?? cleanPresentationText(region.summary),
     selected: region.id === selectedRegionId,
     stageNumber: region.stageNumber,
+    factory,
     counts: {
       vibe: count('vibe'),
       shared: count('shared'),
@@ -184,13 +222,6 @@ function roomPreview(
 }
 
 function docNodeData(node: DocNode, presentation: NodePresentation) {
-  const trackColor = node.track === 'vibe'
-    ? '#147D78'
-    : node.track === 'pro'
-      ? '#9A5B12'
-      : node.track === 'both'
-        ? '#4F5F9B'
-        : NODE_COLORS[node.type];
   return {
     docNodeId: node.id,
     displayTitle: presentation.displayTitle,
@@ -203,7 +234,6 @@ function docNodeData(node: DocNode, presentation: NodePresentation) {
     toolReferences: node.toolReferences,
     promptTemplates: node.promptTemplates,
     contentBlocksCount: node.contentBlocks?.length || 0,
-    color: trackColor,
   };
 }
 
@@ -245,15 +275,26 @@ function defaultExpandedTracks(): Set<string> {
   return tracks;
 }
 
-export default function CanvasViewer({ document, writePolicy }: Props) {
+function waitForPaint(frames = 2): Promise<void> {
+  return new Promise(resolve => {
+    const next = (remaining: number) => window.requestAnimationFrame(() => {
+      if (remaining <= 1) resolve();
+      else next(remaining - 1);
+    });
+    next(frames);
+  });
+}
+
+export default function CanvasViewer({ document, documentHash, presentation, writePolicy }: Props) {
   const [docNodes, setDocNodes] = useState<DocNode[]>(() => document.nodes);
   const [docEdges, setDocEdges] = useState<DocEdge[]>(() => document.edges);
   const [documentTitle, setDocumentTitle] = useState(document.title);
   const [documentVersion, setDocumentVersion] = useState(document.version);
+  const [baseDocumentHash, setBaseDocumentHash] = useState(documentHash);
+  const [presentationSidecar, setPresentationSidecar] = useState(presentation);
   const [canvasView, setCanvasView] = useState<CanvasView>({ kind: 'overview' });
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedRelation, setSelectedRelation] = useState<FactorySceneEdge | null>(null);
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
   const [dismissedReaderRegionId, setDismissedReaderRegionId] = useState<string | null>(null);
   const [highlightedSearchNodeId, setHighlightedSearchNodeId] = useState<string | null>(null);
@@ -263,29 +304,80 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
   const [lastSavedTime, setLastSavedTime] = useState('');
   const [saveError, setSaveError] = useState('');
   const [exportStatus, setExportStatus] = useState('');
+  const [exportingFullScene, setExportingFullScene] = useState(false);
+  const [exportFeedback, setExportFeedback] = useState<{
+    status: ExportFeedbackStatus;
+    message: string;
+  }>({ status: 'idle', message: '' });
   const [layoutProfile, setLayoutProfile] = useState<'desktop' | 'tablet'>('desktop');
   const [isMobileViewport, setIsMobileViewport] = useState(false);
-  const [exportingPanorama, setExportingPanorama] = useState(false);
+  const [ownerAuthenticated, setOwnerAuthenticated] = useState(writePolicy.mode === 'dev');
+  const [ownerInspectorTab, setOwnerInspectorTab] = useState<FactoryOwnerInspectorTab | null>(null);
   const [restoredState, setRestoredState] = useState<CanvasState | null>(null);
   const [searchRequest, setSearchRequest] = useState(0);
-  const { fitView, getNodesBounds, getViewport, setViewport } = useReactFlow();
+  const [searchContext, setSearchContext] = useState<SearchNavigationTarget | null>(null);
+  const [searchNotice, setSearchNotice] = useState('');
   const autoFitRef = useRef(true);
   const restoredViewportRef = useRef(false);
   const canvasShellRef = useRef<HTMLDivElement>(null);
-  const nodesRef = useRef<Node[]>([]);
+  const sceneCanvasRef = useRef<FactorySceneCanvasHandle>(null);
   const restoreGenerationRef = useRef(0);
   const exportInFlightRef = useRef(false);
+  const exportFeedbackTimerRef = useRef<number | null>(null);
 
   const [expandedTracks, setExpandedTracks] = useState<Set<string>>(defaultExpandedTracks);
   const presentationFingerprintRef = useRef<string | null>(null);
+  const incomingDocumentKeyRef = useRef(`${document.id}:${documentHash}:${presentation.revision}`);
+  const handleOwnerAuthenticatedChange = useCallback((authenticated: boolean) => {
+    setOwnerAuthenticated(authenticated);
+    if (!authenticated) setOwnerInspectorTab(null);
+  }, []);
+  const editorWritable = !isMobileViewport && (
+    writePolicy.mode === 'dev' || (writePolicy.mode === 'owner' && ownerAuthenticated)
+  );
+  const canPersistServerView = !isMobileViewport && (
+    writePolicy.mode === 'dev' || (writePolicy.mode === 'owner' && ownerAuthenticated)
+  );
 
-  const architectureModel = useMemo(() => buildArchitectureViewModel({
+  const rawArchitectureModel = useMemo(() => buildArchitectureViewModel({
     id: document.id,
     title: documentTitle,
     version: documentVersion,
     nodes: docNodes,
     edges: docEdges,
   }), [document.id, documentTitle, documentVersion, docEdges, docNodes]);
+  const architectureModel = useMemo(
+    () => applyArchitectureSidecar(rawArchitectureModel, presentationSidecar),
+    [presentationSidecar, rawArchitectureModel],
+  );
+  const factoryPresentationByRegionId = useMemo(
+    () => buildFactoryPresentationMap(architectureModel, presentationSidecar),
+    [architectureModel, presentationSidecar],
+  );
+
+  const showExportFeedback = useCallback((
+    status: ExportFeedbackStatus,
+    message: string,
+    hideAfterMs?: number,
+  ) => {
+    if (exportFeedbackTimerRef.current !== null) {
+      window.clearTimeout(exportFeedbackTimerRef.current);
+      exportFeedbackTimerRef.current = null;
+    }
+    setExportFeedback({ status, message });
+    if (hideAfterMs) {
+      exportFeedbackTimerRef.current = window.setTimeout(() => {
+        setExportFeedback({ status: 'idle', message: '' });
+        exportFeedbackTimerRef.current = null;
+      }, hideAfterMs);
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (exportFeedbackTimerRef.current !== null) {
+      window.clearTimeout(exportFeedbackTimerRef.current);
+    }
+  }, []);
   const displayDocumentVersion = cleanPresentationText(documentVersion);
   const documentPresentation = useMemo(() => buildDocumentPresentation(
     { nodes: docNodes },
@@ -319,23 +411,28 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
     () => filterFocusedTracks(architectureModel, canvasView, expandedTracks),
     [architectureModel, canvasView, expandedTracks],
   );
-  const layout = useMemo(
-    () => computeArchitectureLayout(layoutModel, {
-      view: canvasView,
-      profile: exportingPanorama ? 'desktop' : layoutProfile,
-    }),
-    [canvasView, exportingPanorama, layoutModel, layoutProfile],
-  );
+  const layout = useFactoryLayout(layoutModel, canvasView, layoutProfile);
   const regionById = useMemo(
     () => new Map(architectureModel.regions.map(region => [region.id, region])),
     [architectureModel.regions],
   );
   const nodeById = useMemo(() => new Map(docNodes.map(node => [node.id, node])), [docNodes]);
+  const searchNavigationIndex = useMemo<SearchNavigationIndex>(() => ({
+    nodeIds: new Set(nodeById.keys()),
+    nodeRegionId: architectureModel.nodeRegionId,
+    regionKindById: Object.fromEntries(architectureModel.regions.map(region => [region.id, region.kind])),
+  }), [architectureModel.nodeRegionId, architectureModel.regions, nodeById]);
   const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
+  const selectedNodeModuleId = selectedNodeId
+    ? architectureModel.nodeRegionId[selectedNodeId]
+    : undefined;
   const selectedNodePresentation = selectedNodeId
     ? presentationByNodeId.get(selectedNodeId) ?? null
     : null;
   const selectedRegion = selectedRegionId ? regionById.get(selectedRegionId) : undefined;
+  const selectedRegionFactory = selectedRegionId
+    ? factoryPresentationByRegionId.get(selectedRegionId)
+    : undefined;
   const focusedRegion = canvasView.kind === 'focused-region'
     ? regionById.get(canvasView.regionId)
     : undefined;
@@ -348,16 +445,28 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
     const previous = presentationFingerprintRef.current;
     presentationFingerprintRef.current = architectureModel.graphFingerprint;
     if (!previous || previous === architectureModel.graphFingerprint) return;
-    setSelectedRegionId(null);
-    setDismissedReaderRegionId(null);
-    setHighlightedSearchNodeId(null);
-  }, [architectureModel.graphFingerprint]);
+    if (selectedRegionId && !regionById.has(selectedRegionId)) {
+      setSelectedRegionId(null);
+      setOwnerInspectorTab(null);
+    }
+    if (highlightedSearchNodeId && !nodeById.has(highlightedSearchNodeId)) {
+      setHighlightedSearchNodeId(null);
+    }
+  }, [architectureModel.graphFingerprint, highlightedSearchNodeId, nodeById, regionById, selectedRegionId]);
+
+  useEffect(() => {
+    if (searchContext && !nodeById.has(searchContext.nodeId)) {
+      setSearchNotice('搜索目标内容已变化，请重新搜索。');
+    }
+  }, [nodeById, searchContext]);
 
   const selectRegion = useCallback((regionId: string) => {
     if (exportInFlightRef.current) return;
     const region = regionById.get(regionId);
     if (!region || region.kind === 'roof') return;
+    restoreGenerationRef.current += 1;
     setSelectedRegionId(regionId);
+    setOwnerInspectorTab(null);
     setDismissedReaderRegionId(null);
     setHighlightedSearchNodeId(null);
     setActiveStage(region.stageNumber ?? null);
@@ -393,33 +502,37 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
     restoredViewportRef.current = true;
   }, []);
 
-  const projectedNodes = useMemo<Node[]>(() => {
-    return layout.nodes.map((layoutNode: ArchitectureLayoutNode): Node => {
+  const projectedNodes = useMemo<FactoryProjectedNode[]>(() => {
+    return layout.nodes.map((layoutNode: ArchitectureLayoutNode): FactoryProjectedNode => {
       const base = {
         id: layoutNode.id,
-        position: layoutNode.position,
-        draggable: layoutNode.draggable,
-        selectable: layoutNode.kind === 'content',
         selected: layoutNode.kind === 'content' && layoutNode.nodeId === highlightedSearchNodeId,
-        zIndex: layoutNode.kind === 'group' ? 0 : layoutNode.kind === 'lane' ? 1 : 2,
-        style: { width: layoutNode.width, height: layoutNode.height },
-        ...(layoutNode.parentId ? { parentId: layoutNode.parentId, extent: 'parent' as const } : {}),
       };
 
       if (layoutNode.kind === 'floor') {
         const floor = architectureModel.floors.find(candidate => candidate.id === layoutNode.id);
-        const rooms = (layoutNode.regionIds ?? [])
-          .map(regionId => regionById.get(regionId))
-          .filter((region): region is ArchitectureRegion => Boolean(region))
-          .map(region => roomPreview(region, selectedRegionId, regionPresentationById.get(region.id)));
         const data: ArchitectureFloorData = {
           floorLabel: floor?.label ?? 'ARCHITECTURE FLOOR',
           title: architectureModel.mode === 'lifecycle' ? '产品生命周期层' : '产品能力模块层',
-          rooms,
           mode: architectureModel.mode,
-          onSelectRoom: selectRegion,
         };
         return { ...base, type: 'architectureFloor', data: data as unknown as Record<string, unknown> };
+      }
+
+      if (layoutNode.kind === 'room') {
+        const region = layoutNode.regionId ? regionById.get(layoutNode.regionId) : undefined;
+        const presentation = region ? regionPresentationById.get(region.id) : undefined;
+        const factory = region ? factoryPresentationByRegionId.get(region.id) : undefined;
+        if (!region || !factory) {
+          return { ...base, type: 'architectureResource', data: { title: '房间不可用', count: 0, previews: [] } };
+        }
+        const data: ArchitectureRoomData = {
+          ...roomPreview(region, selectedRegionId, presentation),
+          roomIndex: region.stageNumber ?? region.order,
+          factory,
+          onSelectRoom: selectRegion,
+        };
+        return { ...base, type: 'architectureRoom', data: data as unknown as Record<string, unknown> };
       }
 
       if (layoutNode.kind === 'roof' || layoutNode.kind === 'foyer' || layoutNode.kind === 'foundation' || layoutNode.kind === 'annex') {
@@ -506,50 +619,67 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
       }
       return { ...base, type: 'cardNode', data: docNodeData(docNode, presentation) };
     });
-  }, [architectureModel, displayDocumentVersion, highlightedSearchNodeId, layout.nodes, nodeById, presentationByNodeId, regionById, regionPresentationById, selectRegion, selectedRegionId]);
+  }, [architectureModel, displayDocumentVersion, factoryPresentationByRegionId, highlightedSearchNodeId, layout.nodes, nodeById, presentationByNodeId, regionById, regionPresentationById, selectRegion, selectedRegionId]);
 
-  const projectedEdges = useMemo<Edge[]>(() => layout.edges.map(edge => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    sourceHandle: 'top-out',
-    targetHandle: 'bottom-in',
-    type: 'smoothstep',
-    animated: false,
-    style: { stroke: '#355C45', strokeWidth: 2, opacity: 0.66 },
-  })), [layout.edges]);
+  const projectedNodeById = useMemo(
+    () => new Map(projectedNodes.map(node => [node.id, node])),
+    [projectedNodes],
+  );
+
+  const renderFactorySceneNode = useCallback((sceneNode: FactorySceneNode): ReactNode => {
+    const projected = projectedNodeById.get(sceneNode.id);
+    if (!projected) return null;
+    if (projected.type === 'architectureFloor') {
+      return <ArchitectureFloorNode data={projected.data as unknown as ArchitectureFloorData} />;
+    }
+    if (projected.type === 'architectureRoom') {
+      return <ArchitectureRoomNode data={projected.data as unknown as ArchitectureRoomData} />;
+    }
+    if (projected.type === 'architectureCap') {
+      return <ArchitectureCapNode data={projected.data as unknown as ArchitectureCapData} />;
+    }
+    if (projected.type === 'architectureLane') {
+      return <ArchitectureLaneNode data={projected.data as unknown as ArchitectureLaneData} />;
+    }
+    if (projected.type === 'architectureRoomGroup') {
+      return <ArchitectureRoomGroupNode data={projected.data as unknown as ArchitectureRoomGroupData} />;
+    }
+    if (projected.type === 'architectureResource') {
+      return <ArchitectureResourceNode data={projected.data as unknown as ArchitectureResourceData} />;
+    }
+    return <CardNode data={projected.data as unknown as Parameters<typeof CardNode>[0]['data']} selected={projected.selected} />;
+  }, [projectedNodeById]);
+
+  const factorySceneNodeLabel = useCallback((sceneNode: FactorySceneNode): string => {
+    if (sceneNode.nodeId) {
+      return presentationByNodeId.get(sceneNode.nodeId)?.displayTitle ?? '内容节点';
+    }
+    if (sceneNode.regionId) {
+      return regionPresentationById.get(sceneNode.regionId)?.displayTitle
+        ?? regionById.get(sceneNode.regionId)?.title
+        ?? '建筑模块';
+    }
+    if (sceneNode.kind === 'floor') return '建筑楼层';
+    if (sceneNode.kind === 'lane') return '内容轨道';
+    return '建筑节点';
+  }, [presentationByNodeId, regionById, regionPresentationById]);
+
+  const matchingRestoredState = useMemo(() => {
+    const restored = restoredState ? restoreCanvasState(restoredState, identity) : null;
+    return restored && sameCanvasView(restored.view, canvasView) ? restored : null;
+  }, [canvasView, identity, restoredState]);
 
   useEffect(() => {
-    const matchingRestoredState = restoredState
-      ? restoreCanvasState(restoredState, identity)
-      : null;
-    const positions = matchingRestoredState && sameCanvasView(matchingRestoredState.view, canvasView)
-      ? matchingRestoredState.nodePositions
-      : {};
-    setNodes(projectedNodes.map(node => ({
-      ...node,
-      position: node.draggable && positions[node.id] ? positions[node.id] : node.position,
-    })));
-    setEdges(projectedEdges);
-
     const timeout = window.setTimeout(() => {
-      if (
-        matchingRestoredState?.lastSaved
-        && !restoredViewportRef.current
-        && sameCanvasView(matchingRestoredState.view, canvasView)
-      ) {
+      if (matchingRestoredState?.lastSaved && !restoredViewportRef.current) {
         restoredViewportRef.current = true;
-        setViewport(matchingRestoredState.viewport);
+        sceneCanvasRef.current?.setViewport(matchingRestoredState.viewport, false);
         return;
       }
-      if (autoFitRef.current) fitView({ padding: canvasView.kind === 'overview' ? 0.08 : 0.12, duration: 420 });
+      if (autoFitRef.current) sceneCanvasRef.current?.fit(true);
     }, 80);
     return () => window.clearTimeout(timeout);
-  }, [canvasView, fitView, identity, projectedEdges, projectedNodes, restoredState, setEdges, setNodes, setViewport]);
-
-  useEffect(() => {
-    nodesRef.current = nodes;
-  }, [nodes]);
+  }, [canvasView, layout.bounds.height, layout.bounds.width, matchingRestoredState]);
 
   useEffect(() => {
     const updateProfile = () => {
@@ -577,13 +707,33 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
       }
       if (!state) {
         try {
-          const response = await fetch(`/api/canvas-state?documentId=${document.id}`);
-          if (response.ok) state = restoreCanvasState(await response.json(), identity);
+          const previousKey = getPreviousCanvasStateLocalStorageKey(document.id);
+          const previousRaw = localStorage.getItem(previousKey);
+          const previousValue: unknown = previousRaw ? JSON.parse(previousRaw) : null;
+          state = restoreCanvasState(previousValue, identity);
+          if (state && isCanvasStateV2(previousValue)) {
+            localStorage.setItem(getCanvasStateLocalStorageKey(document.id), JSON.stringify(state));
+            localStorage.removeItem(previousKey);
+          }
         } catch {
           state = null;
         }
       }
-      // A save can occur while the server GET is in flight. Re-read local v2
+      if (!state) {
+        try {
+          const response = await fetch(`/api/canvas-state?documentId=${document.id}`);
+          if (response.ok) {
+            const stored: unknown = await response.json();
+            state = restoreCanvasState(stored, identity);
+            if (state && isCanvasStateV2(stored)) {
+              localStorage.setItem(getCanvasStateLocalStorageKey(document.id), JSON.stringify(state));
+            }
+          }
+        } catch {
+          state = null;
+        }
+      }
+      // A save can occur while the server GET is in flight. Re-read local v3
       // state before applying the response so the newest browser action wins.
       try {
         const freshRaw = localStorage.getItem(getCanvasStateLocalStorageKey(document.id));
@@ -594,11 +744,12 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
       if (cancelled || generation !== restoreGenerationRef.current || !state) return;
       if (state.view.kind === 'focused-region' && !regionById.has(state.view.regionId)) return;
       setRestoredState(state);
-      if (state.expandedNodes.includes('tracks:v2')) {
+      if (state.expandedNodes.includes('tracks:v3') || state.expandedNodes.includes('tracks:v2')) {
         setExpandedTracks(new Set(state.expandedNodes.filter(value => /^stage[1-8]-(?:vibe|pro)$/.test(value))));
       }
       setCanvasView(state.view);
-      setSelectedRegionId(state.view.kind === 'focused-region' ? state.view.regionId : null);
+      setSelectedRegionId(state.selectedModuleId
+        ?? (state.view.kind === 'focused-region' ? state.view.regionId : null));
       setDismissedReaderRegionId(null);
       setActiveStage(state.view.kind === 'focused-region' ? regionById.get(state.view.regionId)?.stageNumber ?? null : null);
       setLastSavedTime(state.lastSaved ?? '');
@@ -608,36 +759,45 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
   }, [document.id, identity, regionById]);
 
   useEffect(() => {
+    const incomingKey = `${document.id}:${documentHash}:${presentation.revision}`;
+    if (incomingDocumentKeyRef.current === incomingKey) return;
+    incomingDocumentKeyRef.current = incomingKey;
     setDocNodes(document.nodes);
     setDocEdges(document.edges);
     setDocumentTitle(document.title);
     setDocumentVersion(document.version);
+    setBaseDocumentHash(documentHash);
+    setPresentationSidecar(presentation);
     setSelectedNodeId(null);
     setSelectedRegionId(null);
     setDismissedReaderRegionId(null);
     setHighlightedSearchNodeId(null);
     setDetailOpen(false);
-  }, [document.edges, document.id, document.nodes, document.title, document.version]);
+    setOwnerInspectorTab(null);
+  }, [document.edges, document.id, document.nodes, document.title, document.version, documentHash, presentation]);
 
   const saveCanvasState = useCallback(async () => {
     restoreGenerationRef.current += 1;
     const now = new Date().toISOString();
-    const state = createCanvasState(identity, {
+    const state = createCanvasStateForSave(identity, {
       view: canvasView,
-      viewport: getViewport(),
-      expandedNodes: ['tracks:v2', ...[...expandedTracks].sort()],
+      selectedModuleId: selectedRegionId ?? undefined,
+      viewport: sceneCanvasRef.current?.getViewport() ?? { x: 0, y: 0, zoom: 1 },
+      expandedNodes: ['tracks:v3', ...[...expandedTracks].sort()],
       nodePositions: canvasView.kind === 'focused-region'
-        ? Object.fromEntries(nodes.filter(node => node.draggable).map(node => [node.id, node.position]))
+        ? sceneCanvasRef.current?.getNodePositions() ?? {}
         : {},
-      lastSaved: now,
+      savedAt: now,
+      viewportCanRestore: window.innerWidth >= 768,
     });
     setRestoredState(state);
     try {
       localStorage.setItem(getCanvasStateLocalStorageKey(document.id), JSON.stringify(state));
       localStorage.removeItem(getLegacyCanvasStateLocalStorageKey(document.id));
+      localStorage.removeItem(getPreviousCanvasStateLocalStorageKey(document.id));
     } catch {}
 
-    if (!writePolicy.writable) {
+    if (!canPersistServerView) {
       setSaveStatus('saved');
       setLastSavedTime(now);
       setSaveError('');
@@ -648,10 +808,10 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
     let success = false;
     for (let attempt = 0; attempt < 3 && !success; attempt++) {
       try {
-        const token = sessionStorage.getItem('doccanvas-admin-token') || '';
         const response = await fetch('/api/canvas-state', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { 'X-DocCanvas-Token': token } : {}) },
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(state),
         });
         if (!response.ok) throw new Error(await response.text());
@@ -669,7 +829,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
       setSaveStatus('error');
       setSaveError('无法保存到服务器。状态已保存在浏览器本地。');
     }
-  }, [canvasView, document.id, expandedTracks, getViewport, identity, nodes, writePolicy.writable]);
+  }, [canPersistServerView, canvasView, document.id, expandedTracks, identity, selectedRegionId]);
 
   const resetAutoLayout = useCallback(async () => {
     restoreGenerationRef.current += 1;
@@ -677,6 +837,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
     try {
       localStorage.setItem(getCanvasStateLocalStorageKey(document.id), JSON.stringify(reset));
       localStorage.removeItem(getLegacyCanvasStateLocalStorageKey(document.id));
+      localStorage.removeItem(getPreviousCanvasStateLocalStorageKey(document.id));
     } catch {}
     setRestoredState(null);
     restoredViewportRef.current = true;
@@ -687,12 +848,13 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
     setDismissedReaderRegionId(null);
     setHighlightedSearchNodeId(null);
     setExpandedTracks(defaultExpandedTracks());
-    if (writePolicy.writable) {
+    sceneCanvasRef.current?.resetNodePositions();
+    if (canPersistServerView) {
       try {
-        const token = sessionStorage.getItem('doccanvas-admin-token') || '';
         const response = await fetch('/api/canvas-state', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { 'X-DocCanvas-Token': token } : {}) },
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(reset),
         });
         if (!response.ok) throw new Error(await response.text());
@@ -701,147 +863,131 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
         setSaveError('自动布局已在本地重置，但服务器状态未更新。');
       }
     }
-  }, [document.id, identity, writePolicy.writable]);
+  }, [canPersistServerView, document.id, identity]);
 
   const fitCanvas = useCallback(() => {
     autoFitRef.current = true;
-    fitView({ padding: canvasView.kind === 'overview' ? 0.08 : 0.12, duration: 360 });
-  }, [canvasView.kind, fitView]);
+    sceneCanvasRef.current?.fit(true);
+  }, []);
+
+  const handleSceneViewportChange = useCallback(() => {
+    autoFitRef.current = false;
+  }, []);
 
   const fitCanvasFromUser = useCallback(() => {
     restoreGenerationRef.current += 1;
     fitCanvas();
   }, [fitCanvas]);
 
-  const exportMarkdown = useCallback(() => {
-    window.location.href = `/api/export/markdown?documentId=${document.id}`;
-  }, [document.id]);
+  const exportMarkdown = useCallback(async () => {
+    if (exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+    setExportStatus('正在导出 Markdown...');
+    showExportFeedback('working', '正在导出 Markdown...');
+    let objectUrl = '';
+    try {
+      const response = await fetch(`/api/export/markdown?documentId=${document.id}`);
+      if (!response.ok) throw new Error(`导出接口返回 ${response.status}`);
+      const blob = await response.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const link = window.document.createElement('a');
+      link.download = `${document.id}.md`;
+      link.href = objectUrl;
+      link.click();
+      link.remove();
+      setExportStatus('Markdown 已导出。');
+      showExportFeedback('success', 'Markdown 已导出。', 3200);
+      window.setTimeout(() => setExportStatus(''), 2200);
+    } catch (error) {
+      const reason = error instanceof Error ? cleanPresentationText(error.message) : '';
+      const message = `Markdown 导出未完成${reason ? `：${reason}` : '。'}`;
+      setExportStatus(message);
+      showExportFeedback('error', message, 5200);
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      exportInFlightRef.current = false;
+    }
+  }, [document.id, showExportFeedback]);
 
   const exportPng = useCallback(async () => {
     if (exportInFlightRef.current) return;
     exportInFlightRef.current = true;
-    restoreGenerationRef.current += 1;
-    setExportStatus('正在导出暖白全景 PNG...');
-    const originalView = canvasView;
-    const expectedLayout = computeArchitectureLayout(architectureModel, {
-      view: { kind: 'overview' },
-      profile: 'desktop',
-    });
+    setExportStatus('正在导出当前视口 PNG...');
+    showExportFeedback('working', '正在导出当前视口 PNG...');
     try {
-      setExportingPanorama(true);
-      if (originalView.kind === 'focused-region') {
-        setCanvasView({ kind: 'overview' });
-      }
-      const viewportElement = window.document.querySelector('.desktop-architecture-canvas .react-flow__viewport') as HTMLElement | null;
-      if (!viewportElement) throw new Error('未找到桌面全景视图。');
-      const desktopCanvas = viewportElement.closest<HTMLElement>('.desktop-architecture-canvas');
-      if (!desktopCanvas) throw new Error('未找到桌面全景容器。');
-      const paintSurfaceReady = () => {
-        const sampleNode = viewportElement.querySelector<HTMLElement>('.react-flow__node[data-id]');
-        if (!sampleNode) return false;
-        const canvasRect = desktopCanvas.getBoundingClientRect();
-        const viewportRect = viewportElement.getBoundingClientRect();
-        const nodeRect = sampleNode.getBoundingClientRect();
-        return isPngPaintSurfaceReady({
-          shellExporting: canvasShellRef.current?.classList.contains('is-exporting-panorama') === true,
-          canvasDisplay: window.getComputedStyle(desktopCanvas).display,
-          canvasVisibility: window.getComputedStyle(desktopCanvas).visibility,
-          viewportVisibility: window.getComputedStyle(viewportElement).visibility,
-          nodeVisibility: window.getComputedStyle(sampleNode).visibility,
-          canvasWidth: canvasRect.width,
-          canvasHeight: canvasRect.height,
-          viewportWidth: viewportRect.width,
-          viewportHeight: viewportRect.height,
-          nodeWidth: nodeRect.width,
-          nodeHeight: nodeRect.height,
-        });
-      };
-      const waitForPaintTick = () => new Promise<void>(resolve => {
-        let settled = false;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          window.clearTimeout(timeout);
-          resolve();
-        };
-        const timeout = window.setTimeout(finish, 50);
-        window.requestAnimationFrame(finish);
-      });
-      let projectionReady = false;
-      const projectionDeadline = window.performance.now() + 3_000;
-      const projectionMatches = () => {
-        const currentById = new Map(nodesRef.current.map(node => [node.id, node]));
-        const modelMatches = nodesRef.current.length === expectedLayout.nodes.length
-          && expectedLayout.nodes.every(expected => {
-            const current = currentById.get(expected.id);
-            return current
-              && current.position.x === expected.position.x
-              && current.position.y === expected.position.y
-              && current.style?.width === expected.width
-              && current.style?.height === expected.height;
-          });
-        if (!modelMatches) return false;
-        const domIds = new Set(Array.from(
-          viewportElement.querySelectorAll<HTMLElement>('.react-flow__node[data-id]'),
-        ).map(element => element.dataset.id));
-        const domEdgeIds = new Set(Array.from(
-          viewportElement.querySelectorAll<HTMLElement>('.react-flow__edge[data-id]'),
-        ).map(element => element.dataset.id));
-        return domIds.size === expectedLayout.nodes.length
-          && domEdgeIds.size === expectedLayout.edges.length
-          && expectedLayout.nodes.every(node => domIds.has(node.id))
-          && expectedLayout.edges.every(edge => domEdgeIds.has(edge.id))
-          && paintSurfaceReady();
-      };
-      for (let attempt = 0; attempt < 120 && window.performance.now() < projectionDeadline; attempt++) {
-        await waitForPaintTick();
-        if (projectionMatches()) {
-          await waitForPaintTick();
-          if (projectionMatches()) {
-            projectionReady = true;
-            break;
-          }
-        }
-      }
-      if (!projectionReady) throw new Error('建筑全景投影未在时限内稳定。');
+      const viewportElement = window.document.querySelector<HTMLElement>('.desktop-architecture-canvas .factory-scene-canvas');
+      if (!viewportElement?.querySelector('.factory-scene-node')) throw new Error('当前视口尚未完成绘制。');
       assertExportTextSafe(viewportElement);
-      const visibleNodes = nodesRef.current.filter(node => !node.hidden);
-      if (visibleNodes.length === 0) throw new Error('当前没有可导出的节点。');
-      const bounds = getNodesBounds(visibleNodes);
-      const imageWidth = Math.ceil(bounds.width + 240);
-      const imageHeight = Math.ceil(bounds.height + 240);
+      const rect = viewportElement.getBoundingClientRect();
+      const imageWidth = Math.ceil(rect.width);
+      const imageHeight = Math.ceil(rect.height);
       const pixelRatio = selectPngPixelRatio(imageWidth, imageHeight);
-      if (pixelRatio === null) throw new Error('建筑全景尺寸超过安全导出预算。');
-      const viewport = getViewportForBounds(bounds, imageWidth, imageHeight, 0.1, 2, 0.08);
+      if (pixelRatio === null) throw new Error('当前视口超过安全导出预算。');
       const dataUrl = await toPng(viewportElement, {
-        backgroundColor: '#F8FBF0',
+        backgroundColor: window.getComputedStyle(viewportElement).backgroundColor,
         width: imageWidth,
         height: imageHeight,
         pixelRatio,
+        filter: node => !(node instanceof HTMLElement)
+          || (!node.classList.contains('factory-scene-controls') && !node.classList.contains('factory-scene-minimap')),
+      });
+      const link = window.document.createElement('a');
+      link.download = `${document.id}-viewport.png`;
+      link.href = dataUrl;
+      link.click();
+      link.remove();
+      setExportStatus('当前视口 PNG 已导出。');
+      showExportFeedback('success', '当前视口 PNG 已导出。', 3200);
+      window.setTimeout(() => setExportStatus(''), 2200);
+    } catch (error) {
+      const reason = error instanceof Error ? cleanPresentationText(error.message) : '';
+      const message = `PNG 导出未完成${reason ? `：${reason}` : '。'}`;
+      setExportStatus(message);
+      showExportFeedback('error', message, 5200);
+    } finally {
+      exportInFlightRef.current = false;
+    }
+  }, [document.id, showExportFeedback]);
+
+  const exportSvg = useCallback(async () => {
+    if (exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+    setExportStatus('正在导出完整场景 SVG...');
+    showExportFeedback('working', '正在导出完整场景 SVG...');
+    try {
+      setExportingFullScene(true);
+      await waitForPaint();
+      const sceneElement = sceneCanvasRef.current?.getSceneElement();
+      if (!sceneElement?.querySelector('.factory-scene-node')) throw new Error('完整场景尚未完成绘制。');
+      assertExportTextSafe(sceneElement);
+      const dataUrl = await toSvg(sceneElement, {
+        width: Math.ceil(layout.bounds.width),
+        height: Math.ceil(layout.bounds.height),
         style: {
-          width: `${imageWidth}px`,
-          height: `${imageHeight}px`,
-          visibility: 'visible',
-          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+          width: `${Math.ceil(layout.bounds.width)}px`,
+          height: `${Math.ceil(layout.bounds.height)}px`,
+          transform: 'none',
+          transformOrigin: '0 0',
         },
       });
       const link = window.document.createElement('a');
-      link.download = `${document.id}-architecture.png`;
+      link.download = `${document.id}-${layout.view}.svg`;
       link.href = dataUrl;
       link.click();
-      setExportStatus('PNG 已导出。');
+      link.remove();
+      setExportStatus('完整场景 SVG 已导出。');
+      showExportFeedback('success', '完整场景 SVG 已导出。', 3200);
       window.setTimeout(() => setExportStatus(''), 2200);
     } catch (error) {
-      setExportStatus(error instanceof Error ? error.message : 'PNG 导出未完成。');
+      const reason = error instanceof Error ? cleanPresentationText(error.message) : '';
+      const message = `SVG 导出未完成${reason ? `：${reason}` : '。'}`;
+      setExportStatus(message);
+      showExportFeedback('error', message, 5200);
     } finally {
+      setExportingFullScene(false);
       exportInFlightRef.current = false;
-      setExportingPanorama(false);
-      if (originalView.kind === 'focused-region') {
-        setCanvasView(originalView);
-      }
-      autoFitRef.current = true;
     }
-  }, [architectureModel, canvasView, document.id]);
+  }, [document.id, layout.bounds.height, layout.bounds.width, layout.view, showExportFeedback]);
 
   const openDocNode = useCallback((nodeId: string) => {
     const node = nodeById.get(nodeId);
@@ -863,23 +1009,114 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
     setDetailOpen(false);
   }, []);
 
-  const navigateToNode = useCallback((nodeId: string) => {
-    const regionId = architectureModel.nodeRegionId[nodeId];
-    const region = regionId ? regionById.get(regionId) : undefined;
-    if (!region || region.kind === 'roof') {
-      openDocNode(nodeId);
+  const commitDocumentMutation = useCallback(async (operation: DocumentMutation): Promise<MutationResponse> => {
+    if (!editorWritable) throw new Error('Owner 编辑会话未解锁，或当前设备仅允许只读。');
+    setSaveStatus('saving');
+    setSaveError('');
+    const response = await fetch(`/api/documents/${encodeURIComponent(document.id)}/mutations`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseRevision: presentationSidecar.revision,
+        baseDocumentHash,
+        operation,
+      }),
+    });
+    if (!response.ok) {
+      const message = await responseMessage(response);
+      const readable = response.status === 409
+        ? `版本冲突：${message}`
+        : message;
+      setSaveStatus('error');
+      setSaveError(readable);
+      throw new Error(readable);
+    }
+    const result = parseMutationResponse(await response.json().catch(() => null));
+    if (!result) {
+      const message = '服务端写入完成，但返回的修订结果不完整。请重新加载后再编辑。';
+      setSaveStatus('error');
+      setSaveError(message);
+      throw new Error(message);
+    }
+    replaceParsedDocument(result.document);
+    setPresentationSidecar(result.presentation);
+    setBaseDocumentHash(result.presentation.documentHash);
+    setSaveStatus('saved');
+    setLastSavedTime(result.presentation.updatedAt);
+    return result;
+  }, [baseDocumentHash, document.id, editorWritable, presentationSidecar.revision, replaceParsedDocument]);
+
+  const restoreDocumentRevision = useCallback(async (revisionId: string): Promise<void> => {
+    if (!editorWritable) throw new Error('Owner 编辑会话未解锁，或当前设备仅允许只读。');
+    setSaveStatus('saving');
+    setSaveError('');
+    const response = await fetch(
+      `/api/documents/${encodeURIComponent(document.id)}/revisions/${encodeURIComponent(revisionId)}/restore`,
+      {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          baseRevision: presentationSidecar.revision,
+          baseDocumentHash,
+        }),
+      },
+    );
+    if (!response.ok) {
+      const message = await responseMessage(response);
+      const readable = response.status === 409 ? `版本冲突：${message}` : message;
+      setSaveStatus('error');
+      setSaveError(readable);
+      throw new Error(readable);
+    }
+    const result = parseMutationResponse(await response.json().catch(() => null));
+    if (!result) throw new Error('恢复成功，但服务端未返回完整修订结果。');
+    replaceParsedDocument(result.document);
+    setPresentationSidecar(result.presentation);
+    setBaseDocumentHash(result.presentation.documentHash);
+    setSaveStatus('saved');
+    setLastSavedTime(result.presentation.updatedAt);
+  }, [baseDocumentHash, document.id, editorWritable, presentationSidecar.revision, replaceParsedDocument]);
+
+  const navigateToSearchResult = useCallback((target: SearchNavigationTarget) => {
+    setSearchContext(target);
+    const resolution = resolveSearchNavigationTarget(target, searchNavigationIndex);
+    if (resolution.kind === 'stale') {
+      setSearchNotice('搜索目标内容已变化，请重新搜索。');
       return;
     }
+
+    setSearchNotice('');
+    setHighlightedSearchNodeId(target.nodeId);
+    if (resolution.kind === 'standalone-node') {
+      setCanvasView({ kind: 'overview' });
+      setSelectedRegionId(null);
+      openDocNode(target.nodeId);
+      return;
+    }
+
+    const region = regionById.get(resolution.regionId);
+    const node = nodeById.get(target.nodeId);
+    if (!region || !node) {
+      setSearchNotice('搜索目标内容已变化，请重新搜索。');
+      return;
+    }
+    if (region.stageNumber && (node.track === 'vibe' || node.track === 'pro')) {
+      const trackId = `stage${region.stageNumber}-${node.track}`;
+      setExpandedTracks(previous => new Set(previous).add(trackId));
+    }
+
     restoreGenerationRef.current += 1;
-    setCanvasView({ kind: 'overview' });
-    setSelectedRegionId(region.id);
+    setCanvasView({ kind: 'focused-region', regionId: resolution.regionId });
+    setSelectedRegionId(resolution.regionId);
     setDismissedReaderRegionId(null);
-    setHighlightedSearchNodeId(nodeId);
     setActiveStage(region.stageNumber ?? null);
-    setDetailOpen(false);
+    setHighlightedSearchNodeId(target.nodeId);
+    openDocNode(target.nodeId);
     autoFitRef.current = true;
     restoredViewportRef.current = true;
-  }, [architectureModel.nodeRegionId, openDocNode, regionById]);
+  }, [nodeById, openDocNode, regionById, searchNavigationIndex]);
 
   const stageRegions = useMemo(() => architectureModel.regions
     .filter(region => region.stageNumber !== undefined)
@@ -891,8 +1128,8 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
   const showRegionReader = canvasView.kind === 'overview'
     && Boolean(selectedRegion && selectedRegionPresentation)
     && dismissedReaderRegionId !== selectedRegion?.id
-    && !isMobileViewport
-    && !exportingPanorama;
+    && ownerInspectorTab === null
+    && !isMobileViewport;
 
   const mobileFloors = useMemo<MobileArchitectureFloor[]>(() => {
     const floors = architectureModel.floors.map(floor => ({
@@ -902,7 +1139,12 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
       rooms: floor.regionIds
         .map(regionId => regionById.get(regionId))
         .filter((region): region is ArchitectureRegion => Boolean(region))
-        .map(region => roomPreview(region, selectedRegionId, regionPresentationById.get(region.id))),
+        .map(region => roomPreview(
+          region,
+          selectedRegionId,
+          regionPresentationById.get(region.id),
+          factoryPresentationByRegionId.get(region.id),
+        )),
     }));
     const baseRegions = architectureModel.regions.filter(region =>
       region.kind === 'foyer' || region.kind === 'foundation' || region.kind === 'annex',
@@ -911,12 +1153,23 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
       id: 'mobile:foundation',
       label: 'GROUND / FOUNDATION',
       title: '入口、基础与附属',
-      rooms: baseRegions.map(region => roomPreview(region, selectedRegionId, regionPresentationById.get(region.id))),
+      rooms: baseRegions.map(region => roomPreview(
+        region,
+        selectedRegionId,
+        regionPresentationById.get(region.id),
+        factoryPresentationByRegionId.get(region.id),
+      )),
     }, ...floors];
-  }, [architectureModel.floors, architectureModel.mode, architectureModel.regions, regionById, regionPresentationById, selectedRegionId]);
+  }, [architectureModel.floors, architectureModel.mode, architectureModel.regions, factoryPresentationByRegionId, regionById, regionPresentationById, selectedRegionId]);
 
   const mobileFocused = focusedRegion ? {
-    room: roomPreview(focusedRegion, selectedRegionId, regionPresentationById.get(focusedRegion.id)),
+    room: roomPreview(
+      focusedRegion,
+      selectedRegionId,
+      regionPresentationById.get(focusedRegion.id),
+      factoryPresentationByRegionId.get(focusedRegion.id),
+    ),
+    searchQuery: searchContext?.regionId === focusedRegion.id ? searchContext.query : undefined,
     nodesByTrack: Object.fromEntries((['vibe', 'shared', 'pro'] as const).map(track => {
       const nodeIds = focusedRegion.trackSummaries.find(summary => summary.track === track)?.nodeIds ?? [];
       return [track, nodeIds.map(nodeId => nodeById.get(nodeId)).filter((node): node is DocNode => Boolean(node))];
@@ -927,7 +1180,7 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (exportInFlightRef.current) return;
-      if (event.key === 'Escape' && detailOpen) { setDetailOpen(false); return; }
+      if (event.key === 'Escape' && detailOpen) return;
       if (event.key === 'Escape' && canvasView.kind === 'focused-region') { returnToOverview(); return; }
       if ((event.metaKey || event.ctrlKey) && event.key === 's') {
         if (!detailOpen) { event.preventDefault(); saveCanvasState(); }
@@ -942,34 +1195,38 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
   useEffect(() => {
     const element = canvasShellRef.current;
     if (!element) return;
+    let resizeTimer: number | null = null;
     const observer = new ResizeObserver(() => {
-      if (autoFitRef.current) window.setTimeout(() => fitCanvas(), 80);
+      if (resizeTimer !== null) window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        resizeTimer = null;
+        if (autoFitRef.current) fitCanvas();
+      }, 80);
     });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (resizeTimer !== null) window.clearTimeout(resizeTimer);
+    };
   }, [fitCanvas]);
 
   return (
     <>
       <div
         ref={canvasShellRef}
-        inert={exportingPanorama}
-        className={`architecture-canvas-shell ${canvasView.kind === 'focused-region' ? 'is-focused-region' : ''} ${showRegionReader ? 'has-region-reader' : ''} ${exportingPanorama ? 'is-exporting-panorama' : ''}`}
+        className={`architecture-canvas-shell ${canvasView.kind === 'focused-region' ? 'is-focused-region' : ''} ${showRegionReader ? 'has-region-reader' : ''}${exportingFullScene ? ' is-exporting-full-scene' : ''}`}
       >
-      <header className="architecture-desktop-header">
-        <div className="architecture-desktop-header__identity">
-          <FileText aria-hidden="true" />
-          <span>
-            <strong>{displayArchitectureTitle}</strong>
-            <small>
-              {architectureModel.mode === 'lifecycle' ? '生命周期建筑' : '模块建筑'} · {architectureModel.regions.filter(region => region.kind === 'room').length} 个房间 · {docNodes.length} 个源节点
-              {fileMetadata ? ` · ${formatDisplayDate(fileMetadata.mtime)} · ${formatDisplayInteger(fileMetadata.bytes)} 字符` : ''}
-            </small>
-          </span>
-          {exportStatus && <em className="architecture-export-status"><ShieldAlert aria-hidden="true" />{exportStatus}</em>}
-        </div>
-
-        {stageRegions.length > 0 && (
+      <FactoryHeader
+        title={displayArchitectureTitle}
+        modeLabel={architectureModel.mode === 'lifecycle' ? '生命周期建筑' : '能力模块建筑'}
+        version={displayDocumentVersion}
+        roomCount={architectureModel.regions.filter(region => region.kind === 'room').length}
+        nodeCount={docNodes.length}
+        fileMeta={fileMetadata
+          ? `${formatDisplayDate(fileMetadata.mtime)} · ${formatDisplayInteger(fileMetadata.bytes)} 字符`
+          : undefined}
+        statusMessage={exportStatus || searchNotice || undefined}
+        navigation={stageRegions.length > 0 ? (
           <nav className="architecture-stage-nav" aria-label="阶段导航">
             {stageRegions.map(region => (
               <button
@@ -983,95 +1240,98 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
               </button>
             ))}
           </nav>
+        ) : undefined}
+        actions={(
+          <nav className="architecture-toolbar" aria-label="画布工具栏">
+            <Link href="/" aria-label="返回工作台" title="返回工作台"><Home aria-hidden="true" />工作台</Link>
+            {canvasView.kind === 'focused-region' && (
+              <button type="button" title="返回全景" onClick={returnToOverview}><ArrowLeft aria-hidden="true" />全景</button>
+            )}
+            {activeStage && (
+              <>
+                {(['vibe', 'pro'] as const).map(track => {
+                  const trackId = `stage${activeStage}-${track}`;
+                  const expanded = expandedTracks.has(trackId);
+                  return (
+                    <button
+                      type="button"
+                      key={track}
+                      className={`architecture-toolbar__track architecture-toolbar__track--${track} ${expanded ? 'is-active' : ''}`}
+                      aria-pressed={expanded}
+                      title={`${expanded ? '收起' : '展开'} ${track === 'vibe' ? 'Vibe' : 'Pro'} 轨道`}
+                      onClick={() => setExpandedTracks(previous => {
+                        restoreGenerationRef.current += 1;
+                        const next = new Set(previous);
+                        next.has(trackId) ? next.delete(trackId) : next.add(trackId);
+                        return next;
+                      })}
+                    >
+                      {track === 'vibe' ? 'Vibe' : 'Pro'}
+                    </button>
+                  );
+                })}
+              </>
+            )}
+            <button type="button" title="搜索" onClick={() => setSearchRequest(value => value + 1)}><Search aria-hidden="true" />搜索</button>
+            <button type="button" title="适应画布" onClick={fitCanvasFromUser}><RotateCcw aria-hidden="true" />适应</button>
+            <button type="button" title="重置自动布局" onClick={resetAutoLayout}><RotateCcw aria-hidden="true" />重置</button>
+            <button type="button" title="保存个人视图" onClick={saveCanvasState}><Save aria-hidden="true" />保存视图</button>
+            <OwnerSessionControl
+              writePolicy={writePolicy}
+              onAuthenticatedChange={handleOwnerAuthenticatedChange}
+            />
+            <button type="button" title="导出当前视口 PNG" disabled={exportFeedback.status === 'working'} onClick={exportPng}><ImageDown aria-hidden="true" />PNG</button>
+            <button type="button" title="导出完整场景 SVG" disabled={exportFeedback.status === 'working'} onClick={exportSvg}><FileCode2 aria-hidden="true" />SVG</button>
+            <button type="button" title="导出 Markdown" disabled={exportFeedback.status === 'working'} className="architecture-toolbar__primary" onClick={exportMarkdown}><Download aria-hidden="true" />Markdown</button>
+          </nav>
         )}
+      />
 
-        <nav className="architecture-toolbar" aria-label="画布工具栏">
-          <Link href="/" aria-label="返回工作台" title="返回工作台"><Home aria-hidden="true" />工作台</Link>
-          {canvasView.kind === 'focused-region' && (
-            <button type="button" title="返回全景" onClick={returnToOverview}><ArrowLeft aria-hidden="true" />全景</button>
-          )}
-          {activeStage && (
-            <>
-              {(['vibe', 'pro'] as const).map(track => {
-                const trackId = `stage${activeStage}-${track}`;
-                const expanded = expandedTracks.has(trackId);
-                return (
-                  <button
-                    type="button"
-                    key={track}
-                    className={`architecture-toolbar__track architecture-toolbar__track--${track} ${expanded ? 'is-active' : ''}`}
-                    aria-pressed={expanded}
-                    title={`${expanded ? '收起' : '展开'} ${track === 'vibe' ? 'Vibe' : 'Pro'} 轨道`}
-                    onClick={() => setExpandedTracks(previous => {
-                      restoreGenerationRef.current += 1;
-                      const next = new Set(previous);
-                      next.has(trackId) ? next.delete(trackId) : next.add(trackId);
-                      return next;
-                    })}
-                  >
-                    {track === 'vibe' ? 'Vibe' : 'Pro'}
-                  </button>
-                );
-              })}
-            </>
-          )}
-          <button type="button" title="搜索" onClick={() => setSearchRequest(value => value + 1)}><Search aria-hidden="true" />搜索</button>
-          <button type="button" title="适应画布" onClick={fitCanvasFromUser}><RotateCcw aria-hidden="true" />适应</button>
-          <button type="button" title="重置自动布局" onClick={resetAutoLayout}><RotateCcw aria-hidden="true" />重置</button>
-          <button type="button" title="保存画布状态" onClick={saveCanvasState}><Save aria-hidden="true" />保存</button>
-          <button type="button" title="导出建筑全景 PNG" disabled={exportingPanorama} onClick={exportPng}><ImageDown aria-hidden="true" />PNG</button>
-          <button type="button" title="导出 Markdown" className="architecture-toolbar__primary" onClick={exportMarkdown}><Download aria-hidden="true" />Markdown</button>
-        </nav>
-      </header>
-
-      <div className="desktop-architecture-canvas" aria-hidden={isMobileViewport || exportingPanorama}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeClick={(_event, node) => {
-            const docNodeId = typeof node.data?.docNodeId === 'string' ? node.data.docNodeId : undefined;
-            if (docNodeId) openDocNode(docNodeId);
+      <div className="desktop-architecture-canvas" aria-hidden={isMobileViewport}>
+        <FactorySceneCanvas
+          ref={sceneCanvasRef}
+          layout={layout}
+          viewKey={`${document.id}:${architectureModel.graphFingerprint}:${canvasView.kind === 'overview' ? 'overview' : canvasView.regionId}:${layoutProfile}:${[...expandedTracks].sort().join(',')}`}
+          initialViewport={matchingRestoredState?.viewport}
+          initialNodePositions={matchingRestoredState?.nodePositions}
+          selectedSceneNodeId={selectedNodeId ?? selectedRegionId}
+          highlightedSceneNodeId={highlightedSearchNodeId}
+          renderNode={renderFactorySceneNode}
+          getNodeLabel={factorySceneNodeLabel}
+          onViewportChange={handleSceneViewportChange}
+          onNodeActivate={node => {
+            if (node.nodeId) openDocNode(node.nodeId);
           }}
-          onNodeDragStop={saveCanvasState}
-          onMoveStart={event => {
-            if (event) {
-              restoreGenerationRef.current += 1;
-              autoFitRef.current = false;
-            }
-          }}
-          nodeTypes={nodeTypes}
-          fitView
-          fitViewOptions={{ padding: 0.08 }}
-          minZoom={0.2}
-          maxZoom={2.5}
-          defaultViewport={{ x: 80, y: 40, zoom: 0.6 }}
-          snapToGrid
-          snapGrid={[16, 16]}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="#DDE7D8" />
-          <Controls
-            className="!hidden sm:!flex"
-            onZoomIn={() => { restoreGenerationRef.current += 1; }}
-            onZoomOut={() => { restoreGenerationRef.current += 1; }}
-            onFitView={() => { restoreGenerationRef.current += 1; }}
-          />
-          <MiniMap
-            nodeStrokeWidth={1.5}
-            nodeColor={node => {
-              const track = node.data?.track;
-              if (track === 'vibe') return '#147D78';
-              if (track === 'pro') return '#9A5B12';
-              if (track === 'shared') return '#4F5F9B';
-              return '#91A28B';
-            }}
-            maskColor="rgba(248,251,240,0.74)"
-            className="!hidden sm:!block"
-          />
-
-        </ReactFlow>
+          onNodePositionsChange={() => saveCanvasState()}
+          onEdgeActivate={edge => setSelectedRelation(edge)}
+          renderAll={exportingFullScene}
+        />
+        {editorWritable && selectedRegion?.kind === 'room' && selectedRegionFactory && (
+          <>
+            <nav className="factory-module-actions" aria-label={`${selectedRegion.title} 模块操作`}>
+              <span>OWNER / MODULE</span>
+              <button type="button" onClick={() => setOwnerInspectorTab('module')}><LayoutDashboard aria-hidden="true" />编辑模块</button>
+              <button type="button" onClick={() => setOwnerInspectorTab('nodes')}><ListPlus aria-hidden="true" />新增与排序</button>
+              <button type="button" onClick={() => setOwnerInspectorTab('history')}><History aria-hidden="true" />查看历史</button>
+            </nav>
+            {ownerInspectorTab && (
+              <FactoryOwnerInspector
+                key={`${selectedRegion.id}:${ownerInspectorTab}`}
+                documentId={document.id}
+                region={selectedRegion}
+                profile={presentationSidecar.modules[selectedRegion.id]}
+                factory={selectedRegionFactory}
+                nodes={docNodes}
+                presentationByNodeId={presentationRecord}
+                initialTab={ownerInspectorTab}
+                onMutation={commitDocumentMutation}
+                onRestoreRevision={restoreDocumentRevision}
+                onOpenNode={openDocNode}
+                onClose={() => setOwnerInspectorTab(null)}
+              />
+            )}
+          </>
+        )}
       </div>
 
       {showRegionReader && selectedRegion && selectedRegionPresentation && (
@@ -1087,21 +1347,42 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
           presentations={presentationRecord}
           highlightedNodeId={highlightedSearchNodeId ?? undefined}
           onEnterRoom={openRegion}
+          onOpenNode={openDocNode}
           onClose={() => setDismissedReaderRegionId(selectedRegion.id)}
+        />
+      )}
+
+      {selectedRelation && (
+        <FactoryRelationInspector
+          edge={selectedRelation}
+          sourceLabel={regionPresentationById.get(selectedRelation.source)?.displayTitle
+            ?? presentationByNodeId.get(selectedRelation.source)?.displayTitle
+            ?? '来源节点'}
+          targetLabel={regionPresentationById.get(selectedRelation.target)?.displayTitle
+            ?? presentationByNodeId.get(selectedRelation.target)?.displayTitle
+            ?? '目标节点'}
+          onClose={() => setSelectedRelation(null)}
         />
       )}
 
       <div className="mobile-canvas-toolbar">
         <Link href="/" aria-label="返回工作台"><Home aria-hidden="true" /></Link>
         <button type="button" onClick={() => setSearchRequest(value => value + 1)} aria-label="搜索"><Search aria-hidden="true" /></button>
-        <button type="button" onClick={saveCanvasState} aria-label="保存画布状态"><Save aria-hidden="true" /></button>
-        <button type="button" disabled={exportingPanorama} onClick={exportPng} aria-label="导出 PNG"><ImageDown aria-hidden="true" /></button>
-        <button type="button" onClick={exportMarkdown} aria-label="导出 Markdown"><Download aria-hidden="true" /></button>
+        <button type="button" onClick={saveCanvasState} aria-label="保存个人视图"><Save aria-hidden="true" /></button>
+        <button type="button" disabled={exportFeedback.status === 'working'} onClick={exportPng} aria-label="导出 PNG"><ImageDown aria-hidden="true" /></button>
+        <button type="button" disabled={exportFeedback.status === 'working'} onClick={exportMarkdown} aria-label="导出 Markdown"><Download aria-hidden="true" /></button>
       </div>
       <MobileArchitectureView
         documentTitle={displayArchitectureTitle}
         version={displayDocumentVersion}
         floors={mobileFloors}
+        relations={layout.edges.map(edge => ({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          kind: edge.kind,
+          label: edge.label,
+        }))}
         focused={mobileFocused}
         presentationByNodeId={presentationRecord}
         highlightedNodeId={highlightedSearchNodeId ?? undefined}
@@ -1116,88 +1397,53 @@ export default function CanvasViewer({ document, writePolicy }: Props) {
           presentation={selectedNodePresentation}
           displayMarkdownBlocks={documentPresentation.getDisplayMarkdown(selectedNode.id)}
           open={detailOpen}
-          readOnly={!writePolicy.writable}
+          readOnly={!editorWritable}
+          searchOrigin={selectedNodeId === searchContext?.nodeId
+            ? { query: searchContext.query, sourceLabel: searchContext.sourceLabel }
+            : undefined}
           onClose={() => setDetailOpen(false)}
           onMarkDeleted={async nodeId => {
-            if (!writePolicy.writable) return;
-            const recoveryContent = `[SOFT-DELETED: ${selectedNode.title}]\n\n> 此节点已通过 DocCanvas 画布标记为删除。如需恢复，删除本段并重新加载画布。\n\n${selectedNode.content}`;
-            const token = sessionStorage.getItem('doccanvas-admin-token') || '';
-            const response = await fetch('/api/documents', {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', ...(token ? { 'X-DocCanvas-Token': token } : {}) },
-              body: JSON.stringify({
-                documentId: document.id,
-                nodeId,
-                originalHeading: selectedNode.title,
-                hash: metadataString(selectedNode, 'sectionHash'),
-                heading: selectedNode.title,
-                content: recoveryContent,
-              }),
+            const sectionHash = metadataString(selectedNode, 'sectionHash');
+            if (!editorWritable || !selectedNodeModuleId || !sectionHash) {
+              throw new Error('当前节点没有可验证的模块或 section hash，无法安全删除。');
+            }
+            await commitDocumentMutation({
+              type: 'softDeleteNode',
+              moduleId: selectedNodeModuleId,
+              nodeId,
+              sectionHash,
             });
-            if (!response.ok) {
-              const message = await responseMessage(response);
-              setSaveStatus('error');
-              setSaveError(message);
-              throw new Error(message);
-            }
-            const result = await response.json().catch(() => ({}));
-            if (!isParsedDocument(result.document)) {
-              const message = '保存成功，但服务器未返回完整解析结果。';
-              setSaveStatus('error');
-              setSaveError(message);
-              throw new Error(message);
-            }
-            replaceParsedDocument(result.document, nodeId);
-            setSaveStatus('saved');
-            setLastSavedTime(new Date().toISOString());
             setDetailOpen(false);
           }}
-          onSave={async (heading, updatedContent) => {
-            if (!writePolicy.writable) return;
-            setSaveStatus('saving');
-            const token = sessionStorage.getItem('doccanvas-admin-token') || '';
-            const response = await fetch('/api/documents', {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', ...(token ? { 'X-DocCanvas-Token': token } : {}) },
-              body: JSON.stringify({
-                documentId: document.id,
-                nodeId: selectedNode.id,
-                originalHeading: selectedNode.title,
-                hash: metadataString(selectedNode, 'sectionHash'),
-                heading,
-                content: updatedContent,
-              }),
+          onSave={async (heading, updatedContent, nodeType) => {
+            const sectionHash = metadataString(selectedNode, 'sectionHash');
+            if (!editorWritable || !sectionHash) {
+              throw new Error('当前节点没有可验证的 section hash，无法安全保存。');
+            }
+            await commitDocumentMutation({
+              type: 'updateNode',
+              nodeId: selectedNode.id,
+              sectionHash,
+              title: heading,
+              content: updatedContent,
+              nodeType,
             });
-            if (!response.ok) {
-              const message = await responseMessage(response);
-              setSaveStatus('error');
-              setSaveError(message);
-              throw new Error(message);
-            }
-            const result = await response.json().catch(() => ({}));
-            if (!isParsedDocument(result.document)) {
-              const message = '保存成功，但服务器未返回完整解析结果。';
-              setSaveStatus('error');
-              setSaveError(message);
-              throw new Error(message);
-            }
-            replaceParsedDocument(result.document);
-            setSaveStatus('saved');
-            setLastSavedTime(new Date().toISOString());
             setDetailOpen(false);
           }}
         />
       )}
 
-      <SearchPanel presentations={documentPresentation} onNavigateToNode={navigateToNode} openRequest={searchRequest} />
+      <SearchPanel
+        presentations={documentPresentation}
+        regionIdByNodeId={architectureModel.nodeRegionId}
+        onNavigateToResult={navigateToSearchResult}
+        resumeContext={searchContext}
+        openRequest={searchRequest}
+      />
       <SaveIndicator status={saveStatus} lastSaved={lastSavedTime} errorMessage={saveError} />
+      <ExportIndicator status={exportFeedback.status} message={exportFeedback.message} />
       </div>
 
-      {exportingPanorama && (
-        <div className="architecture-export-overlay" role="status" aria-live="polite">
-          <span><ImageDown aria-hidden="true" /><strong>正在生成建筑全景</strong></span>
-        </div>
-      )}
     </>
   );
 }

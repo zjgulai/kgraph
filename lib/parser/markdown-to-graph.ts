@@ -1,8 +1,8 @@
 /**
- * lib/parser/markdown-to-graph.ts — Convert Playbook Markdown documents to a ReactFlow graph
+ * lib/parser/markdown-to-graph.ts — Convert Playbook Markdown documents to a DocCanvas graph
  *
  * Parses Playbook-style Markdown (VibeTrack roadmap, Playbook-v2 genome doc) into a
- * DocCanvas graph (nodes + edges) ready for React Flow rendering.
+ * DocCanvas graph (nodes + edges) ready for FactoryScene projection and SVG routing.
  *
  * Enhancements over the original heading-only parser:
  *
@@ -32,6 +32,7 @@
  * The public signature `parseMarkdownToGraph(markdown, documentId, filePath): DocCanvas`
  * and all exported types are unchanged.
  */
+import { createHash } from 'crypto';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
@@ -69,6 +70,10 @@ const CIRCLED: Record<string, number> = {
   '⓪': 0, '①': 1, '②': 2, '③': 3, '④': 4, '⑤': 5,
   '⑥': 6, '⑦': 7, '⑧': 8, '⑨': 9, '⑩': 10,
 };
+
+function stableIdFragment(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 12);
+}
 
 // Known tools used across the Playbook docs. Bold spans matching these (or
 // looking like an ASCII product/CLI name) are promoted to tool references.
@@ -291,7 +296,7 @@ export function parseMarkdownToGraph(markdown: string, documentId: string, fileP
   const nodes: DocNode[] = [];
   const edges: DocEdge[] = [];
   const nodeById = new Map<string, DocNode>();
-  let seq = 0;
+  const sectionHashOccurrences = new Map<string, number>();
 
   let docTitle = '';
   let docVersion = '';
@@ -349,7 +354,9 @@ export function parseMarkdownToGraph(markdown: string, documentId: string, fileP
       if (vMatch) docVersion = vMatch[0];
     }
 
-    const nodeId = `node-${documentId}-${seq++}`;
+    const hashOccurrence = (sectionHashOccurrences.get(sec.source.hash) ?? 0) + 1;
+    sectionHashOccurrences.set(sec.source.hash, hashOccurrence);
+    const nodeId = `node-${documentId}-${sec.source.hash}${hashOccurrence > 1 ? `-${hashOccurrence}` : ''}`;
     const docNode: DocNode = {
       id: nodeId,
       type,
@@ -434,7 +441,7 @@ export function parseMarkdownToGraph(markdown: string, documentId: string, fileP
       seen.add(key);
       if (seen.size > 4) break; // cap references per section
 
-      const toolId = `node-${documentId}-${seq++}`;
+      const toolId = `node-${documentId}-reference-${stableIdFragment(`${host.id}:${key}`)}`;
       const toolNode: DocNode = {
         id: toolId,
         type: 'tool',

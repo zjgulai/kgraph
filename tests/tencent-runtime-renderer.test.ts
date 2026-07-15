@@ -156,16 +156,16 @@ test('runtime renderer resolves checksum support before create-only publication'
   assert.ok(checksumCheck < publish, 'checksum support must be resolved before publication');
 });
 
-test('production runbook binds restart harness rendering and resource acceptance', () => {
+test('Owner v3 production runbook requires exact release authorization and manual incident recovery', () => {
   const source = readFileSync(runbook, 'utf8');
 
-  assert.match(source, /render-runtime-script\.sh/);
-  assert.match(source, /# @doccanvas-runtime-contract/);
-  assert.match(source, /Docker 26\.1\.3/);
-  assert.match(source, /<container-id>\|running\|none\|0\|false/);
-  assert.match(source, /90 秒/);
-  assert.match(source, /45/);
-  assert.match(source, /3 秒/);
-  assert.match(source, /previous release.*compose\.yaml.*release\.env/is);
-  assert.match(source, /restart-bundle\.sha256/);
+  assert.match(source, /production unchanged/);
+  assert.match(source, /已推送的 clean Git commit SHA/);
+  assert.match(source, /image digest、backup checksum 和变更窗口/);
+  assert.match(source, /计划批准、旧 release 授权或“继续”不能替代/);
+  assert.match(source, /prepare-owner-data\.sh/);
+  assert.match(source, /backup-owner-data\.sh/);
+  assert.match(source, /不得自动执行恢复/);
+  assert.match(source, /上一不可变 image.*原始 Compose\/release env/is);
+  assert.match(source, /checksum-bound Owner data snapshot/);
 });

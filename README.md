@@ -1,12 +1,12 @@
 ---
 title: DocCanvas
-status: production-live-readonly-acceptance-in-progress
-updated: 2026-07-12
+status: owner-v3-implementation-complete-local
+updated: 2026-07-15
 ---
 
 # DocCanvas
 
-DocCanvas 是一个 Markdown-first 的知识画布应用：它把结构化 Markdown 解析为可浏览、可折叠、可导出的 React Flow 知识图谱。项目基于 Next.js 15、React 19、TypeScript 和 Tailwind CSS v4。
+DocCanvas 是一个 Markdown-first 的产品工厂画布：它把结构化 Markdown 投影为统一 `FactoryScene`，以 DOM 渲染模块和节点、以单一 SVG 图层渲染正交关系与情境 tracer。桌面端支持 Owner 结构化编辑与修订恢复，移动端始终使用只读纵向流程轨。项目基于 Next.js 15、React 19、TypeScript 和 Tailwind CSS v4。
 
 ## 本地运行
 
@@ -25,12 +25,19 @@ npm run verify:local
 
 该命令依次执行 TypeScript 检查、全部 `node:test` 回归和 Next.js production build。三份内置 Playbook 快照位于 `documents/`，独立克隆本仓库即可完成开发与验证。
 
+真实 standalone 跨浏览器验收使用：
+
+```bash
+npm run test:e2e
+```
+
 ## 数据与写入边界
 
-- `documents/*.md` 是内置内容快照；`documents/user/` 用于用户画布。
-- 生产默认 `DOCCANVAS_WRITE_MODE=readonly`，写 API 返回 `403`。
-- Owner 写入必须显式配置 `DOCCANVAS_WRITE_MODE=owner`、管理员 token、HTTPS、备份和单独验收；不要把 token 或密钥提交到仓库。
-- Markdown 写回统一经过 `lib/sync/precise-sync.ts` 的 CAS 与原子替换路径。
+- 运行模式未显式配置时 fail-closed 为 `readonly`；活动 Owner v3 Compose 候选显式固定 `DOCCANVAS_WRITE_MODE=owner`。
+- Owner token 与 session secret 只从 Docker secret file 读取；登录后使用 8 小时 `HttpOnly + Secure + SameSite=Strict` 会话，浏览器不保存 token。
+- 首次 Owner 发布只把缺失的内置 Markdown 复制到独立 `/data/documents`；后续 seed 不覆盖 Owner 已编辑内容，也不修改镜像或服务器 Git 工作区。
+- 所有 mutation 使用 revision、document hash 和 section hash 做 CAS；Markdown、presentation sidecar、资源引用通过 transaction journal、写前快照、原子替换和重新解析完成事务。
+- `/data/revisions` 保留最近至少 50 个修订及全部 30 天内修订；恢复本身也生成新修订。
 
 ## 腾讯云部署拓扑
 
@@ -40,18 +47,18 @@ npm run verify:local
 shared Nginx :443
   -> edge sidecar :8080
     -> internal app :3200
-      -> read-only /data
+      -> writable /data (UID 10001 only)
 ```
 
-生产 Compose 不发布 host port；app 只加入项目 internal network，只有最小 edge sidecar 加入现有共享 proxy network。运行容器使用 non-root、read-only rootfs、capability drop、PID/CPU/内存上限和 digest-pinned images。
+生产 Compose 不发布 host port；app 只加入项目 internal network，只有最小 edge sidecar 加入现有共享 proxy network。运行容器使用 non-root、read-only rootfs、capability drop、PID/CPU/内存上限和 digest-pinned images，业务写入只允许发生在 UID `10001` 管理的 `/data` bind mount。
 
 部署入口与边界：
 
 - [DEPLOY.md](./DEPLOY.md)：当前部署入口与证据分层。
 - [deploy/tencent/README.md](./deploy/tencent/README.md)：Linux image 与 Compose 候选包说明。
-- [deploy/tencent/PRODUCTION-RUNBOOK.md](./deploy/tencent/PRODUCTION-RUNBOOK.md)：服务器熟悉、activation、E2E、回滚与验收计划。
+- [deploy/tencent/PRODUCTION-RUNBOOK.md](./deploy/tencent/PRODUCTION-RUNBOOK.md)：只读盘点、备份、受控替换、生产 smoke 与人工事故恢复计划。
 
-腾讯云当前已运行 readonly 版本，但完整生产验收仍在进行；源码验证、本地 candidate、生产部署与最终验收必须继续分层表述，不能互相替代。当前 release、下一候选与授权边界以 [DEPLOY.md](./DEPLOY.md) 为准。私钥、`.env`、本地计划、测试证据目录和生成状态均由 `.gitignore` / `.dockerignore` 排除。
+历史快照显示腾讯云仍运行 readonly 版本，但发布前必须重新读取真实生产状态。当前工作树只完成本地实现与候选准备，尚未固定 clean commit、image digest、数据备份 checksum 和变更窗口：`production unchanged`。源码验证、本地 candidate、镜像 smoke、生产替换与最终验收必须继续分层表述，不能互相替代。当前授权边界以 [DEPLOY.md](./DEPLOY.md) 为准。
 
 ## 常用命令
 
@@ -61,5 +68,6 @@ shared Nginx :443
 | `npm test` | 全部回归测试 |
 | `npm run build` | Next.js standalone production build |
 | `npm run verify:local` | typecheck + tests + build |
+| `npm run test:e2e` | production build + Chromium/WebKit/移动端 Playwright |
 
 项目当前没有 lint script，因此验收不把 lint 声称为已通过。

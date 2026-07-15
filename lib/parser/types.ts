@@ -51,10 +51,11 @@ export type CanvasView =
 
 export interface CanvasState {
   documentId: string;
-  layoutVersion: 2;
-  layoutMode: 'architecture-house';
+  layoutVersion: 3;
+  layoutMode: 'factory-scene';
   graphFingerprint: string;
   view: CanvasView;
+  selectedModuleId?: string;
   viewport: { x: number; y: number; zoom: number };
   expandedNodes: string[];
   nodePositions: Record<string, { x: number; y: number }>;

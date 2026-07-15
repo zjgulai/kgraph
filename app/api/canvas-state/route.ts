@@ -15,7 +15,7 @@ import { atomicWriteJson, withFileLock } from '@/lib/server/file-ops';
 import { checkWriteAccess } from '@/lib/server/write-guard';
 import { projectPath } from '@/lib/server/project-root';
 import { parseJsonBody } from '@/lib/server/parse-json-body';
-import { isCanvasStateV2, isLegacyCanvasState } from '@/lib/canvas/canvas-state';
+import { isCanvasStateV2, isCanvasStateV3, isLegacyCanvasState } from '@/lib/canvas/canvas-state';
 
 const STATE_DIR = 'data/canvas-states';
 const DocumentIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/);
@@ -29,10 +29,11 @@ const CanvasViewSchema = z.discriminatedUnion('kind', [
 ]);
 const CanvasStateSchema = z.object({
   documentId: DocumentIdSchema,
-  layoutVersion: z.literal(2),
-  layoutMode: z.literal('architecture-house'),
+  layoutVersion: z.literal(3),
+  layoutMode: z.literal('factory-scene'),
   graphFingerprint: z.string().min(1).max(256),
   view: CanvasViewSchema,
+  selectedModuleId: z.string().min(1).max(256).optional(),
   viewport: z.object({
     x: CoordinateSchema,
     y: CoordinateSchema,
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
 
   const raw = readFileSync(filePath, 'utf-8');
   const stored: unknown = JSON.parse(raw);
-  if (!isCanvasStateV2(stored) && !isLegacyCanvasState(stored)) {
+  if (!isCanvasStateV3(stored) && !isCanvasStateV2(stored) && !isLegacyCanvasState(stored)) {
     return NextResponse.json({ error: 'Invalid stored canvas state' }, { status: 500 });
   }
   return NextResponse.json(stored);

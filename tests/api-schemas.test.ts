@@ -62,8 +62,8 @@ function patchPayload(content: string) {
 function canvasState(overrides: Record<string, unknown> = {}) {
   return {
     documentId: 'unknown-doc',
-    layoutVersion: 2,
-    layoutMode: 'architecture-house',
+    layoutVersion: 3,
+    layoutMode: 'factory-scene',
     graphFingerprint: 'sha256:api-schema-fixture',
     view: { kind: 'overview' },
     viewport: { x: 0, y: 0, zoom: 1 },

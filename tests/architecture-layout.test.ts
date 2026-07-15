@@ -172,6 +172,55 @@ test('tablet overview preserves the same building hierarchy in a compact determi
   assertNoPeerOverlap(tablet);
 });
 
+test('overview exposes every room as an independently connectable child node', () => {
+  for (const [id, path] of BUILTINS) {
+    const model = buildArchitectureViewModel(loadBuiltin(id, path));
+    const layout = computeArchitectureOverviewLayout(model);
+    const expectedRooms = model.regions.filter(region => region.kind === 'room');
+    const roomNodes = layout.nodes.filter(node => node.kind === 'room');
+    const nodeIds = new Set(layout.nodes.map(node => node.id));
+
+    assert.equal(roomNodes.length, expectedRooms.length, id);
+    assert.deepEqual(
+      roomNodes.map(node => node.regionId).sort(),
+      expectedRooms.map(region => region.id).sort(),
+      id,
+    );
+    assert.ok(roomNodes.every(node => node.parentId?.startsWith('floor:')), id);
+    assert.ok(layout.edges.length >= Math.max(0, expectedRooms.length - 1), id);
+    assert.ok(layout.edges.every(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target)), id);
+    assert.ok(layout.edges.every(edge => !edge.source.startsWith('floor:') && !edge.target.startsWith('floor:')), id);
+    assert.ok(layout.edges.every(edge => edge.sourceHandle.endsWith('-out')), id);
+    assert.ok(layout.edges.every(edge => edge.targetHandle.endsWith('-in')), id);
+    assert.ok(layout.edges.every(edge => edge.marker === 'arrow-closed'), id);
+    assert.ok(layout.edges.every(edge => edge.waypoints.length >= 2), id);
+  }
+});
+
+test('Playbook overview includes ordered flow plus an explicit governance relation', () => {
+  const model = buildArchitectureViewModel(loadBuiltin('playbook-v2', 'documents/Playbook-v2.md'));
+  const layout = computeArchitectureOverviewLayout(model);
+
+  assert.equal(layout.edges.filter(edge => edge.kind === 'flow').length, 7);
+  assert.ok(layout.edges.some(edge => edge.kind === 'governance'));
+  assert.ok(layout.edges.every(edge => edge.animated === false));
+});
+
+test('focused room projects source graph relationships between visible content nodes', () => {
+  const model = buildArchitectureViewModel(loadBuiltin('playbook-v2', 'documents/Playbook-v2.md'));
+  const room = model.regions.find(region => region.id === 'region:module:delivery-automation');
+  assert.ok(room);
+  const layout = computeArchitectureFocusedLayout(model, room.id);
+  const contentIds = new Set(
+    layout.nodes.filter(node => node.kind === 'content').map(node => node.id),
+  );
+
+  assert.ok(layout.edges.length > 0);
+  assert.ok(layout.edges.every(edge => contentIds.has(edge.source) && contentIds.has(edge.target)));
+  assert.ok(layout.edges.every(edge => ['flow', 'dependency', 'governance', 'resource'].includes(edge.kind)));
+  assert.ok(layout.edges.every(edge => edge.waypoints.length >= 2));
+});
+
 test('module fallback keeps duplicate and long H2 headings in unique rooms with four rooms per floor', () => {
   const longTitle = '非常长的模块标题'.repeat(18);
   const graph = parseFixture(`# Architecture notes

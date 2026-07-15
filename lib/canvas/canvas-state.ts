@@ -1,9 +1,10 @@
 import type { CanvasState, CanvasView } from '@/lib/parser/types';
 
-export const CANVAS_LAYOUT_VERSION = 2 as const;
-export const CANVAS_LAYOUT_MODE = 'architecture-house' as const;
+export const CANVAS_LAYOUT_VERSION = 3 as const;
+export const CANVAS_LAYOUT_MODE = 'factory-scene' as const;
 
-const LOCAL_STORAGE_PREFIX = 'doccanvas:canvas-state:v2:';
+const LOCAL_STORAGE_PREFIX = 'doccanvas:factory-scene:v3:';
+const PREVIOUS_LOCAL_STORAGE_PREFIX = 'doccanvas:canvas-state:v2:';
 const LEGACY_LOCAL_STORAGE_PREFIX = 'doccas-';
 const MAX_NODE_POSITIONS = 5_000;
 const MIN_ZOOM = 0.05;
@@ -16,8 +17,18 @@ export interface CanvasStateIdentity {
 
 type CanvasStateOverrides = Partial<Pick<
   CanvasState,
-  'view' | 'viewport' | 'expandedNodes' | 'nodePositions' | 'lastSaved'
+  'view' | 'selectedModuleId' | 'viewport' | 'expandedNodes' | 'nodePositions' | 'lastSaved'
 >>;
+
+interface CanvasStateSaveOptions {
+  view: CanvasView;
+  selectedModuleId?: string;
+  viewport: CanvasState['viewport'];
+  expandedNodes: string[];
+  nodePositions: CanvasState['nodePositions'];
+  savedAt: string;
+  viewportCanRestore: boolean;
+}
 
 export interface LegacyCanvasState {
   documentId: string;
@@ -25,6 +36,13 @@ export interface LegacyCanvasState {
   expandedNodes: string[];
   nodePositions: Record<string, { x: number; y: number }>;
   lastSaved?: string;
+}
+
+export interface CanvasStateV2 extends LegacyCanvasState {
+  layoutVersion: 2;
+  layoutMode: 'architecture-house';
+  graphFingerprint: string;
+  view: CanvasView;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -84,6 +102,7 @@ export function createCanvasState(
     layoutMode: CANVAS_LAYOUT_MODE,
     graphFingerprint: identity.graphFingerprint,
     view: overrides.view ?? { kind: 'overview' },
+    ...(overrides.selectedModuleId ? { selectedModuleId: overrides.selectedModuleId } : {}),
     viewport: overrides.viewport ?? { x: 0, y: 0, zoom: 1 },
     expandedNodes: overrides.expandedNodes ?? [],
     nodePositions: overrides.nodePositions ?? {},
@@ -91,14 +110,38 @@ export function createCanvasState(
   };
 }
 
+export function createCanvasStateForSave(
+  identity: CanvasStateIdentity,
+  options: CanvasStateSaveOptions,
+): CanvasState {
+  return createCanvasState(identity, {
+    view: options.view,
+    ...(options.selectedModuleId ? { selectedModuleId: options.selectedModuleId } : {}),
+    viewport: options.viewportCanRestore ? options.viewport : { x: 0, y: 0, zoom: 1 },
+    expandedNodes: options.expandedNodes,
+    nodePositions: options.nodePositions,
+    ...(options.viewportCanRestore ? { lastSaved: options.savedAt } : {}),
+  });
+}
+
 export function resetCanvasState(identity: CanvasStateIdentity): CanvasState {
   return createCanvasState(identity);
 }
 
-export function isCanvasStateV2(value: unknown): value is CanvasState {
+export function isCanvasStateV3(value: unknown): value is CanvasState {
   if (!isRecord(value) || !hasBaseStateShape(value)) return false;
   return value.layoutVersion === CANVAS_LAYOUT_VERSION
     && value.layoutMode === CANVAS_LAYOUT_MODE
+    && typeof value.graphFingerprint === 'string'
+    && value.graphFingerprint.length > 0
+    && (value.selectedModuleId === undefined || (typeof value.selectedModuleId === 'string' && value.selectedModuleId.length > 0))
+    && isCanvasView(value.view);
+}
+
+export function isCanvasStateV2(value: unknown): value is CanvasStateV2 {
+  if (!isRecord(value) || !hasBaseStateShape(value)) return false;
+  return value.layoutVersion === 2
+    && value.layoutMode === 'architecture-house'
     && typeof value.graphFingerprint === 'string'
     && value.graphFingerprint.length > 0
     && isCanvasView(value.view);
@@ -126,7 +169,22 @@ export function restoreCanvasState(
   value: unknown,
   identity: CanvasStateIdentity,
 ): CanvasState | null {
-  return isCanvasStateV2(value) && matchesCanvasState(value, identity) ? value : null;
+  if (isCanvasStateV3(value)) return matchesCanvasState(value, identity) ? value : null;
+  if (
+    isCanvasStateV2(value)
+    && value.documentId === identity.documentId
+    && value.graphFingerprint === identity.graphFingerprint
+  ) {
+    return createCanvasState(identity, {
+      view: value.view,
+      selectedModuleId: value.view.kind === 'focused-region' ? value.view.regionId : undefined,
+      viewport: value.viewport,
+      expandedNodes: value.expandedNodes,
+      nodePositions: {},
+      ...(value.lastSaved ? { lastSaved: value.lastSaved } : {}),
+    });
+  }
+  return null;
 }
 
 export function getCanvasStateLocalStorageKey(documentId: string): string {
@@ -135,4 +193,8 @@ export function getCanvasStateLocalStorageKey(documentId: string): string {
 
 export function getLegacyCanvasStateLocalStorageKey(documentId: string): string {
   return `${LEGACY_LOCAL_STORAGE_PREFIX}${documentId}`;
+}
+
+export function getPreviousCanvasStateLocalStorageKey(documentId: string): string {
+  return `${PREVIOUS_LOCAL_STORAGE_PREFIX}${documentId}`;
 }

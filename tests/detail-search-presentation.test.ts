@@ -9,6 +9,10 @@ import { NodeDetailSheet } from '../components/canvas/NodeDetailSheet';
 import type { NodePresentation } from '../lib/canvas/document-presentation';
 import type { MarkdownBlockNode } from '../lib/markdown/presentation';
 import type { DocNode } from '../lib/parser/types';
+import {
+  resolveSearchNavigationTarget,
+  type SearchNavigationTarget,
+} from '../lib/canvas/search-navigation';
 
 const root = resolve(import.meta.dirname, '..');
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
@@ -27,12 +31,61 @@ test('search delegates raw and display matching to the document presentation ind
 });
 
 test('search keeps navigation by node id without decorative text glyphs', () => {
-  assert.match(search, /handleNavigate\(result\.nodeId\)/);
+  assert.match(search, /handleNavigate\(result\)/);
   assert.doesNotMatch(search, /[§↑↓→]/u);
   assert.doesNotMatch(
     search,
     /[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F\u200D\u{1F3FB}-\u{1F3FF}\u{1F1E6}-\u{1F1FF}\u20E3]/u,
   );
+});
+
+test('search navigation target retains query, exact ids, and source presentation', () => {
+  assert.match(search, /SearchNavigationTarget/);
+  assert.match(search, /query:\s*query\.trim\(\)/);
+  assert.match(search, /nodeId:\s*result\.nodeId/);
+  assert.match(search, /regionId:\s*regionIdByNodeId\[result\.nodeId\]/);
+  assert.match(search, /displayTitle:\s*result\.displayTitle/);
+  assert.match(search, /sourceLabel:\s*result\.sourceLabel/);
+  assert.match(search, /resumeContext\?\.query/);
+});
+
+test('exact search navigation fails closed when a node or region mapping changes', () => {
+  const target: SearchNavigationTarget = {
+    query: '进化宪章',
+    nodeId: 'node-security',
+    regionId: 'region:security',
+    displayTitle: '进化宪章',
+    sourceLabel: '安全与治理',
+  };
+  const index = {
+    nodeIds: new Set(['node-security']),
+    nodeRegionId: { 'node-security': 'region:security' },
+    regionKindById: { 'region:security': 'room' as const },
+  };
+
+  assert.deepEqual(resolveSearchNavigationTarget(target, index), {
+    kind: 'focused-node',
+    nodeId: 'node-security',
+    regionId: 'region:security',
+  });
+  assert.deepEqual(resolveSearchNavigationTarget(target, {
+    ...index,
+    nodeIds: new Set(),
+  }), { kind: 'stale', reason: 'node-missing' });
+  assert.deepEqual(resolveSearchNavigationTarget(target, {
+    ...index,
+    nodeRegionId: { 'node-security': 'region:other' },
+  }), { kind: 'stale', reason: 'region-changed' });
+});
+
+test('viewer enters the exact room, highlights the node, and opens detail in one navigation', () => {
+  assert.match(viewer, /resolveSearchNavigationTarget/);
+  assert.match(viewer, /setSearchContext\(target\)/);
+  assert.match(viewer, /setCanvasView\(\{ kind: 'focused-region', regionId: resolution\.regionId \}\)/);
+  assert.match(viewer, /setHighlightedSearchNodeId\(target\.nodeId\)/);
+  assert.match(viewer, /openDocNode\(target\.nodeId\)/);
+  assert.match(viewer, /resumeContext=\{searchContext\}/);
+  assert.match(viewer, /searchOrigin=\{selectedNodeId === searchContext\?\.nodeId/);
 });
 
 test('search consumes Escape before canvas navigation and cancels pending debounce work', () => {
@@ -59,7 +112,7 @@ test('closing detail unmounts editor session state before another node can open'
 });
 
 test('detail preserves raw copy and save payloads while sanitizing visible auxiliary content', () => {
-  assert.match(detail, /onSave\?\.\(title, content\)/);
+  assert.match(detail, /onSave\?\.\(title, content, nodeType\)/);
   assert.match(detail, /handleCopy\(block\.content\)/);
   assert.match(detail, /handleCopy\(prompt\)/);
   assert.match(detail, /cleanPresentationCode/);

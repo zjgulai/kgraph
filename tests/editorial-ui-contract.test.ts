@@ -14,6 +14,8 @@ const mobile = read('components/canvas/MobileArchitectureView.tsx');
 const search = read('components/canvas/SearchPanel.tsx');
 const detail = read('components/canvas/NodeDetailSheet.tsx');
 const css = read('app/globals.css');
+const factoryTokens = read('opendesign/design-systems/doccanvas-product-factory/tokens/colors_and_type.css');
+const factorySystemSkill = read('opendesign/design-systems/doccanvas-product-factory/SKILL.md');
 const documentsRoute = read('app/api/documents/route.ts');
 const errorBoundary = read('components/canvas/CanvasErrorBoundary.tsx');
 const saveIndicator = read('components/canvas/SaveIndicator.tsx');
@@ -77,7 +79,7 @@ test('tablet controls keep 44px targets without wrapping the fixed header', () =
   const tabletStart = css.indexOf('@media (min-width: 768px) and (max-width: 1100px)');
   const tabletEnd = css.indexOf('@media (min-width: 768px) and (max-width: 900px)', tabletStart);
   const tablet = css.slice(tabletStart, tabletEnd);
-  assert.match(tablet, /\.react-flow__controls-button[\s\S]*?width:\s*44px[\s\S]*?height:\s*44px/u);
+  assert.match(css, /\.factory-scene-controls button[\s\S]*?width:\s*44px[\s\S]*?height:\s*44px/u);
   assert.match(tablet, /\.architecture-toolbar button,[\s\S]*?width:\s*44px[\s\S]*?min-height:\s*44px/u);
   assert.match(tablet, /\.architecture-stage-nav button[\s\S]*?width:\s*44px[\s\S]*?height:\s*44px/u);
   assert.match(tablet, /\.architecture-toolbar[\s\S]*?flex-wrap:\s*nowrap/u);
@@ -86,7 +88,41 @@ test('tablet controls keep 44px targets without wrapping the fixed header', () =
 
 test('mobile headings and cards wrap long unbroken labels instead of relying on body clipping', () => {
   assert.match(css, /\.mobile-architecture__hero h1,[\s\S]*?overflow-wrap:\s*anywhere/u);
-  assert.match(css, /\.mobile-floor__toggle > span[\s\S]*?min-width:\s*0/u);
-  assert.match(css, /\.mobile-floor__rooms button strong,[\s\S]*?overflow-wrap:\s*anywhere/u);
+  assert.match(css, /\.mobile-process-room > button[\s\S]*?min-width:\s*0/u);
+  assert.match(css, /\.mobile-process-room > button strong,[\s\S]*?overflow-wrap:\s*anywhere/u);
   assert.match(css, /\.mobile-architecture__node-list strong[\s\S]*?overflow-wrap:\s*anywhere/u);
+});
+
+test('the product factory design system has one canonical token source consumed by the app', () => {
+  assert.match(css, /@import\s+["']\.\.\/opendesign\/design-systems\/doccanvas-product-factory\/tokens\/colors_and_type\.css["'];/u);
+  assert.match(factorySystemSkill, /name:\s*doccanvas-product-factory/u);
+
+  for (const token of [
+    '--factory-canvas',
+    '--factory-surface',
+    '--factory-surface-raised',
+    '--factory-ink',
+    '--factory-muted',
+    '--factory-green',
+    '--factory-green-soft',
+    '--factory-copper',
+    '--factory-slate',
+    '--factory-border',
+    '--factory-danger',
+    '--factory-font-display',
+    '--factory-font-body',
+    '--factory-font-mono',
+    '--factory-h1',
+    '--factory-h2',
+    '--factory-room-title',
+  ]) {
+    assert.match(factoryTokens, new RegExp(`${token.replaceAll('-', '\\-')}:`), token);
+  }
+
+  assert.match(css, /--canvas-bg:\s*var\(--factory-canvas\)/u);
+  assert.match(css, /--canvas-text:\s*var\(--factory-ink\)/u);
+  assert.doesNotMatch(
+    css,
+    /#(?:F3F0E7|FCFAF4|FFFFFF|1D241F|5E6A62|28523C|DDE8DE|9A583B|53616E|C9CDC4|9A3F35)\b/iu,
+  );
 });

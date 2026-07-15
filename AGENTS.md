@@ -2,102 +2,107 @@
 
 ## 项目与证据边界
 
-DocCanvas 是基于 Next.js 15 与 React Flow 的 Markdown 知识画布。`documents/` 中三份内置 Playbook 快照和用户 Markdown 是内容事实源；文件系统与 localStorage 承担持久化，不使用数据库。
+DocCanvas 是基于 Next.js 15、DOM 节点与单一 SVG 关系层的 Markdown 知识画布。`documents/` 中三份内置 Playbook 快照和用户 Markdown 是内容事实源；文件系统承担文档、presentation、修订、事务与素材持久化，localStorage 只作为个人视图兜底，不使用数据库。
 
-- 本地测试、候选包 smoke、云端部署、生产验收是不同证据层级，不得互相替代。
-- 默认生产模式为 `readonly`；除非用户单独授权，不执行腾讯云、PM2、Nginx、DNS、TLS、防火墙、`current` 切换或真实写入。
-- 当前 Git 仓库已使用 `main` 与 remote；每次仍须重新核验 branch、HEAD、upstream 与工作树，禁止把 dirty working tree、未推送 commit 或旧 candidate 冒充可追溯 release。
+- 本地测试、候选 image smoke、生产只读检查、远端替换和生产验收是不同证据层级，不得互相替代。
+- production 默认 fail-closed 为 `readonly`；活动发布 Compose 显式配置 `owner`。未取得针对精确 commit、image digest、backup checksum 与变更窗口的最终授权，不执行腾讯云、Nginx、DNS、TLS、容器替换或真实生产写入。
+- 每次重新核验 branch、HEAD、upstream 与工作树；禁止把 dirty tree、未推送 commit 或旧 candidate 冒充可追溯 release。
 
 ## 启动顺序
 
 1. 读取本文件、用户最新指令，以及存在时的 `../AGENTS.md`、`.kiro/plan/task_plan.md`、`.kiro/plan/progress.md`。
-2. 写入前执行 `git status --short --branch`，保留非本任务改动。
-3. 先搜索 `lib/shared/document-registry.ts`、`lib/markdown/sections.ts`、`lib/sync/precise-sync.ts` 与相关测试，确认现有契约后再实现。
+2. 涉及画布、Owner 写入或发布时，读取 `docs/engineering/factory-scene-v3.md` 与 `deploy/tencent/PRODUCTION-RUNBOOK.md`。
+3. 写入前执行 `git status --short --branch`，保留非本任务改动。
+4. 先搜索 `lib/shared/document-registry.ts`、`lib/markdown/sections.ts`、`lib/server/document-mutations.ts` 与相关测试，确认现有契约后再实现。
 
 ## 常用命令
 
 | 命令 | 用途 |
 |---|---|
 | `npm ci` | 按 lockfile 干净安装；不得在含用户依赖改动的共享树中盲目执行 |
-| `npm run dev` | 本地开发，监听 `127.0.0.1:3200` 的实际绑定以终端输出为准 |
+| `npm run dev` | 本地开发，实际绑定以终端输出为准 |
 | `npm run typecheck` | TypeScript strict 检查 |
 | `npm test` | 执行全部 `node:test` 回归 |
-| `npm run build` | 生成 Next standalone 构建 |
+| `npm run build` | 生成 Next standalone production build |
+| `npm run test:e2e` | build 后执行 Chromium、WebKit 与移动端 Playwright |
 | `npm run verify:local` | 依次执行 typecheck、test、build |
-| `bash -n scripts/deploy-prepare.sh scripts/verify-release.sh` | 部署脚本语法检查 |
-| `node --check ecosystem.config.cjs` | PM2 配置语法检查 |
+| `bash -n scripts/tencent/*.sh` | 腾讯云候选与运行脚本语法检查 |
 
-项目没有 lint script；不得声称 lint 已通过。非琐碎改动至少运行相关测试与 `npm run typecheck`；核心数据流、运行配置或用户可见行为变化运行 `npm run verify:local`。
+项目没有 lint script；不得声称 lint 已通过。非琐碎改动至少运行相关测试与 typecheck；核心数据流、运行配置或用户可见行为变化运行完整 unit、build 和相关 Playwright。
 
 ## 架构与事实源
 
 ```text
-app/                         Next.js App Router 与 API routes
-components/canvas/           React Flow 客户端画布与交互
-lib/parser/                  Markdown -> DocCanvas graph
-lib/markdown/sections.ts     Remark AST 章节边界、raw body、section hash
-lib/shared/document-registry.ts  文档注册表与路径单一事实源
-lib/shared/document-map.ts   旧调用兼容导出，不是新的事实源
-lib/sync/precise-sync.ts     章节 CAS 与原子写回
-lib/server/                  write guard、路径根、文件锁、JSON 边界
-scripts/                     候选包组装与隔离只读验证
-tests/                       契约、API、文件锁、客户端状态、部署脚本测试
+app/                              Next.js App Router 与 API routes
+components/canvas/                DOM 画布、SVG 关系层、Owner/关系 Inspector
+lib/parser/                       Markdown -> DocCanvas graph
+lib/canvas/architecture-view-model.ts  业务建筑投影
+lib/canvas/layout-engine.ts       确定性建筑布局
+lib/canvas/factory-layout.worker.ts    Worker 全量布局入口
+lib/canvas/factory-scene.ts       scene materialization、增量重路由、空间索引
+lib/canvas/orthogonal-router.ts   统一端口与正交路由契约
+lib/canvas/presentation-sidecar.ts     模块档案、节点类型与软删除 sidecar
+lib/server/document-mutations.ts  CAS、journal、snapshot、revision 与恢复
+lib/server/write-guard.ts         readonly/dev/Owner 会话边界
+lib/shared/document-registry.ts   文档注册表与路径单一事实源
+opendesign/.../tokens/            画布语义设计 token 单一事实源
 ```
 
-数据流：
+主数据流：
 
 ```text
-Markdown -> extractMarkdownSections() / parseMarkdownToGraph()
-  -> buildArchitectureViewModel() -> computeArchitectureLayout() -> React Flow projection
-  -> PATCH /api/documents -> write guard -> strict CAS -> atomic file replace
-  -> POST /api/canvas-state -> bounded schema -> atomic JSON replace
+Markdown -> parseMarkdownToGraph() -> applyDocumentSidecar()
+  -> buildArchitectureViewModel() -> worker computeArchitectureLayout()
+  -> materializeFactoryScene() -> DOM nodes + one SVG relation layer
+
+Owner mutation -> HttpOnly session + same-origin guard -> revision/hash CAS
+  -> write-before snapshot + transaction journal -> atomic Markdown/sidecar replace
+  -> reparse + scene validation -> audit + revision retention
 ```
 
-- 仅 React Flow 交互子树使用 `'use client'`；App Router 页面和 route handler 保持 server 边界。
-- `DocNode.content` 必须是源章节 raw Markdown body；`contentBlocks` 只用于展示，禁止反序列化后写回。
-- 建筑布局只把 `metadata.isStageHeading === true` 识别为显式阶段；普通节点继承的 `stageNumber` 只用于阶段归属，不能生成阶段主干。
-- 总览使用确定性建筑网格；工具、Prompt 与引用由 `ArchitectureViewModel.resources` 统一聚合，不得由 desktop/mobile 各自重新分类。
-- 带 `hash` 的保存只允许唯一精确命中；stale/重复/歧义返回 conflict（API 409），禁止按 heading 猜测。
-- 不带 `hash` 的 legacy 保存只允许唯一 `originalHeading` 命中；不得 append 新章节兜底。
-- 文件锁协议只声明同主机、本地 POSIX 文件系统支持；不得外推到 NFS、网络盘或多主机写入。
-- “标记删除”会写入 soft-delete marker 并从当前视图移除；Markdown 章节仍保留，不得称为物理删除。
-- 轨道折叠只作用于 `vibe` / `pro`；`both` 是 Shared，不能因单轨折叠隐藏。
+- `FactorySceneCanvas` 是唯一桌面运行时画布；禁止重新引入 React Flow、`@xyflow/react` 或旧运行时 feature flag。
+- 统一端口 ID 为 `top-in/out`、`bottom-in/out`、`left-in/out`、`right-in/out`；模型、路由与 SVG hit path 边数必须一致。
+- 路径只使用确定性正交 `M/L` waypoint；禁止随机布局、自由贝塞尔和穿越节点的长期路径。
+- 拖动中端点即时跟随，受影响边最多每 50ms 增量重路由，释放后精确重路由；直接拖动不得添加 transform transition。
+- tracer 只在 hover/focus/选中/搜索/进入/拖动完成时单次运行 220–280ms；reduced motion 禁止路径位移动画。
+- 视口通过空间索引与 overscan 虚拟化，规模夹具最多同时渲染 350 DOM 节点和 700 SVG path。
+- `DocNode.content` 是源章节 raw Markdown body；`contentBlocks` 只用于展示，禁止反序列化后写回。
+- presentation sidecar 可改模块档案、节点类型和软删除，不得把视觉字段写进 Markdown。
+- 关系只由 Markdown 层级和确定性结构规则生成；关系 Inspector 只读，禁止手动画线与关系编辑。
+- 画布 CSS 与 canvas component 不得出现裸十六进制颜色；只消费 `doccanvas-product-factory` 语义 token。
+- 八岗位、环境和人物映射由 `lib/canvas/factory-presentation.ts` 统一提供；desktop/mobile 不得重建另一份映射。
+- 移动端始终只读，并用纵向流程轨保留关系语义；不得持久化隐藏桌面 viewport。
 
-## 写入与运行模式
+## Owner 写入契约
 
 | 模式 | 行为 |
 |---|---|
 | 非 production、未配置 | `dev`，本地可写 |
 | `NODE_ENV=production` 默认 | `readonly`，所有写 API 返回 403 |
-| `DOCCANVAS_WRITE_MODE=owner` | 需要 `DOCCANVAS_ADMIN_TOKEN` 与 `X-DocCanvas-Token`；只在单独授权的 HTTPS/备份/验收门后开放 |
+| `DOCCANVAS_WRITE_MODE=owner` | secret file 完整时可登录；未登录写入 401、跨站写入 403 |
 
-所有 API 写入必须经过 `lib/server/write-guard.ts`；Markdown 写入必须经过 `precise-sync.ts`，禁止 route handler 直接覆盖文件。不要打印、提交或写入 token。
+- token 与 session secret 优先且在生产只允许通过 `DOCCANVAS_ADMIN_TOKEN_FILE`、`DOCCANVAS_SESSION_SECRET_FILE` 注入。
+- 登录签发 8 小时 `HttpOnly + Secure + SameSite=Strict` cookie；前端不得使用 local/sessionStorage token 或自定义 token header。
+- mutation 必须携带 `baseRevision` 与 `baseDocumentHash`；冲突返回 409，禁止 last-write-wins。
+- 顶层模块可编辑与排序但不可新增/删除；子节点可新增、修改、复制、移动和软删除；关系自动重建。
+- 每次写入先创建 snapshot 和 journal；失败保持旧版本并 fail-fast。至少保留最近 50 个修订和全部 30 天内修订；恢复本身创建新修订。
+- Markdown 不得由 route handler 直接覆盖；使用 server mutation/precise sync 与 atomic file helpers。
+- 肖像只接受 JPG/PNG/WebP、最大 5MB/1200 万像素，规范化为 800×1000 WebP、移除元数据并按内容 hash 保存。
 
-## 发布拓扑与验证顺序
+## 发布拓扑
 
-对目标 `101.34.52.232` / `kgraph.lute-tlz-dddd.top`，以下 PM2 拓扑已被 `.kiro/plan/tencent-cloud-docker-deployment-plan.md` 覆盖：该主机必须使用 `doccanvas-kgraph` 独立 Compose project、app internal network、edge-only shared network、无 host port 与 dedicated TLS。不得执行 PM2 路线、不得安装/重启 Docker daemon、不得修改 `daemon.json`、不得 prune 或让 app 直接加入 `lighthouse_ai_video_net`。公网 readonly activation 已有历史执行证据，但任何新上传、image load、app/edge replacement、shared Nginx 变更或 owner 写入都需要新的明确授权；旧授权不得复用。
+目标 `101.34.52.232` / `kgraph.lute-tlz-dddd.top` 使用独立 Compose project `doccanvas-kgraph`：app 只在 internal network，edge 是唯一加入共享 proxy network 的 endpoint，无 host port。不得执行 PM2 路线、安装/重启 Docker daemon、修改 `daemon.json`、prune 或让 app 直接加入共享网络。
 
-以下内容仅保留为非该主机的历史候选发布契约：
-
-```text
-/opt/doccanvas/releases/<release-id>  immutable release
-/opt/doccanvas/current                atomic symlink selected by owner
-/var/lib/doccanvas/documents          mutable Markdown data
-/var/lib/doccanvas/data               manifest and canvas state
-/var/log/doccanvas                    PM2 logs
-```
-
-- `scripts/deploy-prepare.sh <release-dir> <data-dir>` 只构建/组装候选包并 seed 缺失文档；不得启动服务、覆盖已有 data 或切换 `current`。
-- `scripts/verify-release.sh <release-dir> <data-dir>` 只在调用者选择的未占用 loopback 端口启动候选包并验证 deep readiness（registry、Markdown parse、目录权限、不泄露 Node 版本）与 readonly 契约；通过仍不等于云端或生产验收。
-- 验证顺序：相关测试 -> `npm run verify:local` -> 隔离 clean-room candidate -> readonly fixture smoke -> 人工云端 preflight -> 授权 activation -> 生产 acceptance。
-- standalone 必须显式包含 `public/` 与 `.next/static/`；PM2 配置不提供 HTTP health probe，`/api/health` readiness 由独立 synthetic probe/人工验收调用，进程 liveness 由 PM2/端口监控承担。
-- 发布锁在进程被 `SIGKILL` 或主机崩溃后可能残留；owner 必须先确认无发布进程与 staging 活动，再人工清理对应 `<release>.publish-lock`。
+- rootfs 保持 read-only；只有 `/data` bind mount 可写，业务数据 UID/GID 固定 `10001:10001`。
+- `prepare-owner-data.sh` 只补缺失种子并拒绝 symlink；`backup-owner-data.sh` 只在写入静默时生成 create-only checksum snapshot。
+- 不自动回滚。上一不可变 image 与发布前 snapshot 只用于 Owner 再次授权后的硬故障事故恢复。
+- standalone 必须包含 `public/`、`.next/static/`、Sharp native trace 和 OpenDesign token source。
 
 ## 禁止事项
 
 - 不从 `'node:crypto'` 导入；使用 `'crypto'`。
 - 不在多个文件重复定义文档路径；使用 `document-registry.ts`。
-- 不用 `Math.random()` 进行布局；使用 deterministic hash seed。
+- 不用 `Math.random()` 进行布局。
 - 不在 CardNode 用 JS 截断标题；使用 CSS line clamp。
-- 不修改测试、跳过失败或把 fixture/local smoke 写成 production passed。
-- 不使用 `git add .`、不主动 commit/deploy/merge；除非用户明确要求并确认范围。
+- 不修改/跳过测试制造通过，不把 fixture/local smoke 写成 production passed。
+- 不使用 `git add .`，不主动 commit/deploy/merge；除非用户明确要求并确认范围。

@@ -9,14 +9,27 @@ services:
       NODE_ENV: production
       DOCUMENT_PATH_MODE: prod
       DOCCANVAS_ROOT: /data
-      DOCCANVAS_WRITE_MODE: readonly
+      DOCCANVAS_WRITE_MODE: owner
+      DOCCANVAS_ADMIN_TOKEN_FILE: /run/secrets/doccanvas_owner_token
+      DOCCANVAS_SESSION_SECRET_FILE: /run/secrets/doccanvas_session_secret
       PORT: "3200"
       HOSTNAME: 0.0.0.0
     volumes:
       - type: bind
         source: ${DOCCANVAS_DATA_ROOT:?set DOCCANVAS_DATA_ROOT}
         target: /data
-        read_only: true
+        read_only: false
+    secrets:
+      - source: doccanvas_owner_token
+        target: doccanvas_owner_token
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: doccanvas_session_secret
+        target: doccanvas_session_secret
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m,uid=10001,gid=10001,mode=1770
@@ -78,7 +91,8 @@ services:
         - >-
           body="$$(wget -qO- --header='Host: kgraph.lute-tlz-dddd.top' http://127.0.0.1:8080/_edge_health)" &&
           printf '%s' "$$body" | grep -q '"status":"ok"' &&
-          printf '%s' "$$body" | grep -q '"mode":"readonly"'
+          printf '%s' "$$body" | grep -q '"mode":"owner"' &&
+          printf '%s' "$$body" | grep -q '"configured":true'
       interval: 15s
       timeout: 5s
       start_period: 15s
@@ -92,6 +106,12 @@ services:
 configs:
   edge_nginx:
     file: ./edge.nginx.conf
+
+secrets:
+  doccanvas_owner_token:
+    file: ${DOCCANVAS_OWNER_TOKEN_FILE:?set DOCCANVAS_OWNER_TOKEN_FILE}
+  doccanvas_session_secret:
+    file: ${DOCCANVAS_SESSION_SECRET_FILE:?set DOCCANVAS_SESSION_SECRET_FILE}
 
 networks:
   internal:

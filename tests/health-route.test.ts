@@ -48,6 +48,11 @@ function fixtureRoot() {
     'data/canvases',
     'data/canvas-states',
     'data/evolution-audit',
+    'data/presentation',
+    'data/revisions',
+    'data/transactions',
+    'data/revision-audit',
+    'data/assets/portraits',
   ]) {
     mkdirSync(join(root, path), { recursive: true });
   }
@@ -74,7 +79,7 @@ test('health performs deep readonly readiness checks without exposing runtime ve
   assert.equal(body.writePolicy.mode, 'readonly');
   assert.equal(body.nodeVersion, undefined);
   assert.equal(body.checks.registry.ok, true);
-  assert.equal(body.checks.directories.length, 5);
+  assert.equal(body.checks.directories.length, 10);
   assert.equal(body.checks.directories.every((check: { ok: boolean }) => check.ok), true);
   assert.equal(body.documents.length, 3);
   assert.equal(body.documents.every((doc: { accessible: boolean; parseable: boolean; path: string }) => (

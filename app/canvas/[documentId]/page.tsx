@@ -2,7 +2,7 @@
  * app/canvas/[documentId]/page.tsx — Canvas viewer for a specific document
  *
  * Server Component: loads the Markdown file, parses it into a DocCanvas graph,
- * and renders the interactive React Flow canvas.
+ * and renders the interactive SVG + DOM factory canvas.
  */
 import { readFileSync, existsSync, statSync } from 'fs';
 import { notFound } from 'next/navigation';
@@ -10,8 +10,10 @@ import Link from 'next/link';
 import { AlertTriangle, FileQuestion } from 'lucide-react';
 import { CanvasClientWrapper } from '@/components/canvas/CanvasClientWrapper';
 import { parseMarkdownToGraph } from '@/lib/parser/markdown-to-graph';
+import { applyDocumentSidecar } from '@/lib/canvas/presentation-sidecar';
 import { getDocumentEntry } from '@/lib/shared/document-registry';
 import { projectPath } from '@/lib/server/project-root';
+import { documentContentHash, readPresentationSidecar } from '@/lib/server/presentation-store';
 import { getWritePolicy } from '@/lib/server/write-guard';
 
 export default async function CanvasPage({ params }: { params: Promise<{ documentId: string }> }) {
@@ -37,7 +39,11 @@ export default async function CanvasPage({ params }: { params: Promise<{ documen
   }
 
   const markdown = readFileSync(filePath, 'utf-8');
-  const graph = parseMarkdownToGraph(markdown, documentId, filePath);
+  const presentation = readPresentationSidecar(documentId, markdown);
+  const graph = applyDocumentSidecar(
+    parseMarkdownToGraph(markdown, documentId, filePath),
+    presentation,
+  );
 
   if (graph.nodes.length === 0) {
     return (
@@ -59,5 +65,12 @@ export default async function CanvasPage({ params }: { params: Promise<{ documen
   const fileStat = statSync(filePath);
   (graph as any)._file = { mtime: fileStat.mtime.toISOString(), path: docConfig.path, bytes: markdown.length };
 
-  return <CanvasClientWrapper document={graph} writePolicy={getWritePolicy()} />;
+  return (
+    <CanvasClientWrapper
+      document={graph}
+      documentHash={documentContentHash(markdown)}
+      presentation={presentation}
+      writePolicy={getWritePolicy()}
+    />
+  );
 }

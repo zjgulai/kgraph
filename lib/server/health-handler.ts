@@ -5,7 +5,7 @@ import {
   type DocumentReadinessCache,
 } from '@/lib/server/document-readiness-cache';
 import { projectPath } from '@/lib/server/project-root';
-import { getWritePolicy } from '@/lib/server/write-guard';
+import { getWritePolicy, ownerRuntimeReady } from '@/lib/server/write-guard';
 import { listDocumentEntries, type DocumentEntry } from '@/lib/shared/document-registry';
 
 const REQUIRED_DIRECTORIES = [
@@ -14,6 +14,11 @@ const REQUIRED_DIRECTORIES = [
   'data/canvases',
   'data/canvas-states',
   'data/evolution-audit',
+  'data/presentation',
+  'data/revisions',
+  'data/transactions',
+  'data/revision-audit',
+  'data/assets/portraits',
 ] as const;
 
 function checkDocument(
@@ -50,6 +55,7 @@ export function createHealthHandler(
 ) {
   return async function getHealth() {
     const writePolicy = getWritePolicy();
+    const writePolicyConfigured = writePolicy.mode !== 'owner' || ownerRuntimeReady();
     let registryOk = true;
     let entries: DocumentEntry[] = [];
 
@@ -66,6 +72,7 @@ export function createHealthHandler(
     documentReadinessCache.retain(activeDocumentPaths);
     const directories = REQUIRED_DIRECTORIES.map(path => checkDirectory(path, writePolicy.writable));
     const ready = registryOk
+      && writePolicyConfigured
       && documents.length >= 3
       && documents.every(document => document.accessible && document.parseable)
       && directories.every(directory => directory.ok);
@@ -75,7 +82,7 @@ export function createHealthHandler(
         status: ready ? 'ok' : 'degraded',
         uptime: process.uptime(),
         timestamp: new Date().toISOString(),
-        writePolicy,
+        writePolicy: { ...writePolicy, configured: writePolicyConfigured },
         checks: {
           registry: { ok: registryOk },
           directories,

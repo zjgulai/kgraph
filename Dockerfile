@@ -12,6 +12,7 @@ COPY doccanvas/ecosystem.config.cjs doccanvas/nginx.conf doccanvas/.dockerignore
 COPY doccanvas/app ./app
 COPY doccanvas/components ./components
 COPY doccanvas/lib ./lib
+COPY doccanvas/opendesign ./opendesign
 COPY doccanvas/public ./public
 COPY doccanvas/documents ./documents
 COPY doccanvas/scripts ./scripts

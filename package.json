@@ -1,18 +1,21 @@
 {
   "name": "doccas",
   "version": "1.0.0",
-  "description": "Interactive infinite canvas for your Playbook documents — React Flow-powered knowledge graph",
+  "description": "Editable SVG + DOM product-factory canvas for Markdown documents",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3200",
     "build": "next build",
     "start": "next start -p 3200",
     "test": "tsx --test tests/**/*.test.ts",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:update": "npm run build && playwright test --update-snapshots",
+    "test:e2e:prepare": "tsx scripts/prepare-standalone-e2e.ts",
+    "test:e2e:serve": "npm run test:e2e:prepare && node .next/standalone/server.js",
     "typecheck": "tsc --noEmit --pretty false",
     "verify:local": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "@xyflow/react": "^12.0.0",
     "clsx": "^2.1.0",
     "gray-matter": "^4.0.3",
     "html-to-image": "^1.11.13",
@@ -22,6 +25,7 @@
     "react-dom": "^19.0.0",
     "remark-gfm": "^4.0.0",
     "remark-parse": "^11.0.0",
+    "sharp": "0.34.5",
     "tailwind-merge": "^2.5.0",
     "unified": "^11.0.0",
     "unist-util-visit": "^5.0.0",
@@ -29,6 +33,7 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
