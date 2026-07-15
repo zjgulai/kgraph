@@ -127,6 +127,7 @@ test('build script assembles an external allowlist context and requires a digest
   assert.match(script, /RUNTIME_IMAGE.*distroless.*@sha256:/s);
   assert.match(script, /mktemp -d/);
   assert.match(script, /--platform linux\/amd64/);
+  assert.match(script, /--provenance=false/);
   assert.match(script, /release id does not match HEAD/);
   assert.match(script, /tracked worktree changes must be committed before build/);
   assert.match(script, /untracked file found in release allowlist/);

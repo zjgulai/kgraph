@@ -59,6 +59,7 @@ find "$CONTEXT_DIR" -type f -print | sed "s#^$CONTEXT_DIR/##" | LC_ALL=C sort > 
 docker buildx build \
   --platform linux/amd64 \
   --load \
+  --provenance=false \
   --metadata-file "$STAGING_OUTPUT/build-metadata.json" \
   --build-arg "NODE_IMAGE=$NODE_IMAGE" \
   --build-arg "RUNTIME_IMAGE=$RUNTIME_IMAGE" \
