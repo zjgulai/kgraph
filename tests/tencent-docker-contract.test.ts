@@ -126,6 +126,16 @@ test('build script assembles an external allowlist context and requires a digest
   assert.match(script, /RUNTIME_IMAGE.*distroless.*@sha256:/s);
   assert.match(script, /mktemp -d/);
   assert.match(script, /--platform linux\/amd64/);
+  assert.match(script, /release id does not match HEAD/);
+  assert.match(script, /tracked worktree changes must be committed before build/);
+  assert.match(script, /untracked file found in release allowlist/);
+  assert.match(script, /--metadata-file/);
+  assert.match(script, /containerimage\.digest/);
+  assert.match(script, /containerimage\.config\.digest/);
+  assert.match(script, /loaded image ID does not match runtime config digest/);
+  assert.match(script, /git_commit_sha=/);
+  assert.match(script, /manifest_digest=/);
+  assert.match(script, /runtime_config_digest=/);
   assert.match(script, /sensitive/i);
   assert.match(script, /docker save/);
   assert.match(script, /app components lib opendesign public documents scripts tests deploy/);

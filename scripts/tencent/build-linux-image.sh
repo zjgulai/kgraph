@@ -16,6 +16,16 @@ RUNTIME_IMAGE="${RUNTIME_IMAGE:-gcr.io/distroless/nodejs22-debian13@sha256:773a6
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 DOCCANVAS_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+GIT_COMMIT_SHA="$(git -C "$DOCCANVAS_ROOT" rev-parse HEAD)"
+RELEASE_COMMIT_PREFIX="${RELEASE_ID##*-}"
+[[ "$GIT_COMMIT_SHA" == "$RELEASE_COMMIT_PREFIX"* ]] || fail "release id does not match HEAD"
+git -C "$DOCCANVAS_ROOT" diff --quiet || fail "tracked worktree changes must be committed before build"
+git -C "$DOCCANVAS_ROOT" diff --cached --quiet || fail "staged changes must be committed before build"
+UNTRACKED_SOURCE="$(git -C "$DOCCANVAS_ROOT" ls-files --others --exclude-standard -- \
+  Dockerfile .dockerignore package.json package-lock.json tsconfig.json next.config.ts \
+  postcss.config.mjs ecosystem.config.cjs nginx.conf app components lib opendesign \
+  public documents scripts tests deploy)"
+[[ -z "$UNTRACKED_SOURCE" ]] || fail "untracked file found in release allowlist"
 CONTEXT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/doccanvas-build-context.XXXXXX")"
 OUTPUT_PARENT="$(dirname "$OUTPUT_DIR")"
 mkdir -p "$OUTPUT_PARENT"
@@ -49,6 +59,7 @@ find "$CONTEXT_DIR" -type f -print | sed "s#^$CONTEXT_DIR/##" | LC_ALL=C sort > 
 docker buildx build \
   --platform linux/amd64 \
   --load \
+  --metadata-file "$STAGING_OUTPUT/build-metadata.json" \
   --build-arg "NODE_IMAGE=$NODE_IMAGE" \
   --build-arg "RUNTIME_IMAGE=$RUNTIME_IMAGE" \
   --build-arg "SOURCE_SHA=$SOURCE_SHA" \
@@ -58,15 +69,31 @@ docker buildx build \
   --file "$CONTEXT_DIR/Dockerfile" \
   "$CONTEXT_DIR"
 
+MANIFEST_DIGEST="$(node -e '
+  const metadata = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  const digest = metadata["containerimage.digest"];
+  if (!/^sha256:[a-f0-9]{64}$/.test(digest ?? "")) process.exit(1);
+  process.stdout.write(digest);
+' "$STAGING_OUTPUT/build-metadata.json")" || fail "build metadata is missing the manifest digest"
+RUNTIME_CONFIG_DIGEST="$(node -e '
+  const metadata = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  const digest = metadata["containerimage.config.digest"];
+  if (!/^sha256:[a-f0-9]{64}$/.test(digest ?? "")) process.exit(1);
+  process.stdout.write(digest);
+' "$STAGING_OUTPUT/build-metadata.json")" || fail "build metadata is missing the runtime config digest"
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")"
+[[ "$IMAGE_ID" == "$RUNTIME_CONFIG_DIGEST" ]] || fail "loaded image ID does not match runtime config digest"
 PLATFORM="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE_TAG")"
 [[ "$PLATFORM" == "linux/amd64" ]] || fail "unexpected image platform: $PLATFORM"
 docker save "$IMAGE_TAG" | gzip -n > "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz"
 ARCHIVE_SHA="$(shasum -a 256 "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz" | awk '{print $1}')"
 {
   echo "release_id=$RELEASE_ID"
+  echo "git_commit_sha=$GIT_COMMIT_SHA"
   echo "image_tag=$IMAGE_TAG"
   echo "image_id=$IMAGE_ID"
+  echo "manifest_digest=$MANIFEST_DIGEST"
+  echo "runtime_config_digest=$RUNTIME_CONFIG_DIGEST"
   echo "platform=$PLATFORM"
   echo "source_sha256=$SOURCE_SHA"
   echo "archive_sha256=$ARCHIVE_SHA"
