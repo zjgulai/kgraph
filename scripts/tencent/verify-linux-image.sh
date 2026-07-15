@@ -64,6 +64,13 @@ docker run -d \
   --mount "type=bind,src=$SECRET_ROOT/session-secret,dst=/run/secrets/doccanvas_session_secret,readonly" \
   "$IMAGE_TAG" >/dev/null
 
+[[ "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$CONTAINER_NAME")" == "true" ]] || fail "container root filesystem is not read-only"
+OWNER_SECRET_MOUNT="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/doccanvas_owner_token"}}{{.Type}}:{{.RW}}{{end}}{{end}}' "$CONTAINER_NAME")"
+SESSION_SECRET_MOUNT="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/doccanvas_session_secret"}}{{.Type}}:{{.RW}}{{end}}{{end}}' "$CONTAINER_NAME")"
+DATA_MOUNT="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Type}}:{{.RW}}{{end}}{{end}}' "$CONTAINER_NAME")"
+[[ "$OWNER_SECRET_MOUNT" == "bind:false" ]] || fail "owner secret mount is not read-only"
+[[ "$SESSION_SECRET_MOUNT" == "bind:false" ]] || fail "session secret mount is not read-only"
+[[ "$DATA_MOUNT" == "bind:true" ]] || fail "data mount is not a writable bind mount"
 [[ "$(doccanvas_docker_health_status "$CONTAINER_NAME")" == "none" ]] || fail "container has an active health monitor"
 CONSECUTIVE_READY=0
 for _ in $(seq 1 40); do
@@ -151,7 +158,7 @@ NODE
 [[ "$(docker inspect --format '{{.State.OOMKilled}}' "$CONTAINER_NAME")" == "false" ]] || fail "container was OOM killed"
 [[ "$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME")" == "true" ]] || fail "container stopped"
 CONTAINER_DIFF="$(docker diff "$CONTAINER_NAME")"
-UNEXPECTED_DIFF="$(printf '%s\n' "$CONTAINER_DIFF" | grep -Ev '^(C /app|C /app/\.next|[ACD] /data)$|^[ACD] /(tmp|app/\.next/cache)(/|$)' || true)"
+UNEXPECTED_DIFF="$(printf '%s\n' "$CONTAINER_DIFF" | grep -Ev '^(C /app|C /app/\.next|[ACD] /data|[ACD] /run|[ACD] /run/secrets|[ACD] /run/secrets/(doccanvas_owner_token|doccanvas_session_secret))$|^[ACD] /(tmp|app/\.next/cache)(/|$)' || true)"
 [[ -z "$UNEXPECTED_DIFF" ]] || {
   printf '%s\n' "$UNEXPECTED_DIFF" >&2
   fail "read-only container changed a path outside approved tmpfs"

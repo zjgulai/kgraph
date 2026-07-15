@@ -53,6 +53,7 @@ Owner UI 只在服务端确认 HttpOnly 会话后渲染。mutation 使用 revisi
 - Buildx 的全局当前 builder 会被其他项目切换，且可能携带不相容的 registry mirror；候选脚本必须要求显式 `BUILDX_BUILDER`、通过 `--builder` 传入并把 builder 身份写入 manifest。
 - Next standalone 在容器或反向代理后的 `req.nextUrl.origin` 可能是内部 origin，不等于浏览器 `Origin`；Owner 同源校验使用 edge 覆盖后的 `Host` 和受限 `X-Forwarded-Proto` 重建网络 origin，非 `http/https`、多值 protocol 或非法 Host 均 fail closed。
 - Distroless Node 22 中的 stdin smoke 程序不得混用 CommonJS `require()` 与 top-level `await`；使用 `--input-type=module` 和 ESM import 锁定模块格式。
+- Docker `diff` 会把只读 bind-mounted secret 报告为 `/run` 下的新增挂载点；验证器先通过 inspect 确认两个精确 secret mount 均为 `bind:false`，然后只允许这两个路径及其直接挂载父节点；禁止把整个 `/run/**` 加入 diff allowlist。
 
 ## 验证门
 
