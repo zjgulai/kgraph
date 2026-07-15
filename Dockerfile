@@ -7,7 +7,7 @@ WORKDIR /workspace/doccanvas
 COPY doccanvas/package.json doccanvas/package-lock.json ./
 RUN npm ci --include=dev --no-audit --no-fund
 
-COPY doccanvas/tsconfig.json doccanvas/next.config.ts doccanvas/postcss.config.mjs ./
+COPY doccanvas/tsconfig.json doccanvas/next.config.ts doccanvas/postcss.config.mjs doccanvas/playwright.config.ts ./
 COPY doccanvas/ecosystem.config.cjs doccanvas/nginx.conf doccanvas/.dockerignore doccanvas/Dockerfile ./
 COPY doccanvas/app ./app
 COPY doccanvas/components ./components

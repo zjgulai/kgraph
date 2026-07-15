@@ -37,6 +37,7 @@ test('Docker build is digest-pinned, allowlisted, multi-stage and non-root', () 
   assert.doesNotMatch(dockerfile, /COPY\s+\.\s+\./);
   assert.match(dockerfile, /npm ci --include=dev --no-audit --no-fund/);
   assert.match(dockerfile, /npm run verify:local/);
+  assert.match(dockerfile, /COPY doccanvas\/tsconfig\.json[^\n]*doccanvas\/playwright\.config\.ts/);
   assert.match(dockerfile, /COPY doccanvas\/documents \.\/documents/);
   assert.match(dockerfile, /COPY doccanvas\/opendesign \.\/opendesign/);
   assert.match(dockerfile, /\.next\/standalone/);
@@ -139,6 +140,7 @@ test('build script assembles an external allowlist context and requires a digest
   assert.match(script, /sensitive/i);
   assert.match(script, /docker save/);
   assert.match(script, /app components lib opendesign public documents scripts tests deploy/);
+  assert.match(script, /playwright\.config\.ts/);
   assert.doesNotMatch(script, /StrictHostKeyChecking=no|docker\s+(system\s+)?prune/);
 });
 
