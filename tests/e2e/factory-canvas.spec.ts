@@ -2,6 +2,145 @@ import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'fs';
 import sharp from 'sharp';
 
+const RELATION_PRESENTATION = {
+  flow: {
+    token: 'var(--factory-pipeline-main)',
+    color: 'rgb(40, 82, 60)',
+    width: '3',
+    dash: null,
+  },
+  dependency: {
+    token: 'var(--factory-pipeline-dependency)',
+    color: 'rgb(83, 97, 110)',
+    width: '2',
+    dash: '8 6',
+  },
+  governance: {
+    token: 'var(--factory-pipeline-governance)',
+    color: 'rgb(154, 88, 59)',
+    width: '2',
+    dash: '10 3 2 3',
+  },
+  resource: {
+    token: 'var(--factory-pipeline-resource)',
+    color: 'rgb(201, 205, 196)',
+    width: '1.5',
+    dash: null,
+  },
+} as const;
+
+type RelationKind = keyof typeof RELATION_PRESENTATION;
+
+interface StandaloneRelationInspection {
+  kind: RelationKind | null;
+  linePath: string | null;
+  lineFillAttribute: string | null;
+  lineStrokeAttribute: string | null;
+  lineWidthAttribute: string | null;
+  lineDashAttribute: string | null;
+  markerEnd: string | null;
+  lineFill: string;
+  lineStroke: string;
+  lineWidth: string;
+  hitPath: string | null;
+  hitFillAttribute: string | null;
+  hitStrokeAttribute: string | null;
+  hitOpacityAttribute: string | null;
+  hitWidthAttribute: string | null;
+  hitPointerEventsAttribute: string | null;
+  hitFill: string;
+  hitStroke: string;
+  hitOpacity: string;
+  hitWidth: string;
+  hitPointerEvents: string;
+  markerFillAttribute: string | null;
+  markerStrokeAttribute: string | null;
+  markerFill: string;
+}
+
+async function inspectStandaloneRelations(
+  page: Page,
+  svg: string,
+  standaloneUrl: string,
+): Promise<StandaloneRelationInspection[]> {
+  await page.route(standaloneUrl, route => route.fulfill({
+    status: 200,
+    contentType: 'image/svg+xml; charset=utf-8',
+    body: svg,
+  }));
+  await page.goto(standaloneUrl, { waitUntil: 'domcontentloaded' });
+  return page.locator('.factory-scene-edge').evaluateAll(groups => (
+    groups.map(group => {
+      const kinds = ['flow', 'dependency', 'governance', 'resource'] as const;
+      const kind = kinds.find(candidate => group.classList.contains(`factory-scene-edge--${candidate}`)) ?? null;
+      const line = group.querySelector<SVGPathElement>('.factory-scene-edge__line');
+      const hit = group.querySelector<SVGPathElement>('.factory-scene-edge__hit');
+      if (!line || !hit) throw new Error('Standalone relation is missing a line or hit path.');
+      const markerId = line.getAttribute('marker-end')?.match(/^url\(#(.+)\)$/u)?.[1] ?? '';
+      const marker = markerId ? document.getElementById(markerId) : null;
+      const markerPath = marker?.querySelector<SVGPathElement>('.factory-scene-marker') ?? null;
+      if (!markerPath) throw new Error('Standalone relation marker cannot be resolved.');
+      const lineStyle = getComputedStyle(line);
+      const hitStyle = getComputedStyle(hit);
+      const markerStyle = getComputedStyle(markerPath);
+      return {
+        kind,
+        linePath: line.getAttribute('d'),
+        lineFillAttribute: line.getAttribute('fill'),
+        lineStrokeAttribute: line.getAttribute('stroke'),
+        lineWidthAttribute: line.getAttribute('stroke-width'),
+        lineDashAttribute: line.getAttribute('stroke-dasharray'),
+        markerEnd: line.getAttribute('marker-end'),
+        lineFill: lineStyle.fill,
+        lineStroke: lineStyle.stroke,
+        lineWidth: lineStyle.strokeWidth,
+        hitPath: hit.getAttribute('d'),
+        hitFillAttribute: hit.getAttribute('fill'),
+        hitStrokeAttribute: hit.getAttribute('stroke'),
+        hitOpacityAttribute: hit.getAttribute('stroke-opacity'),
+        hitWidthAttribute: hit.getAttribute('stroke-width'),
+        hitPointerEventsAttribute: hit.getAttribute('pointer-events'),
+        hitFill: hitStyle.fill,
+        hitStroke: hitStyle.stroke,
+        hitOpacity: hitStyle.strokeOpacity,
+        hitWidth: hitStyle.strokeWidth,
+        hitPointerEvents: hitStyle.pointerEvents,
+        markerFillAttribute: markerPath.getAttribute('fill'),
+        markerStrokeAttribute: markerPath.getAttribute('stroke'),
+        markerFill: markerStyle.fill,
+      };
+    })
+  ));
+}
+
+function expectStandaloneRelationContract(relation: StandaloneRelationInspection) {
+  expect(relation.kind).not.toBeNull();
+  const expected = RELATION_PRESENTATION[relation.kind!];
+  expect(relation.linePath).toBe(relation.hitPath);
+  expect(relation.lineFillAttribute).toBe('none');
+  expect(relation.lineStrokeAttribute).toBe(expected.token);
+  expect(relation.lineWidthAttribute).toBe(expected.width);
+  expect(relation.lineDashAttribute).toBe(expected.dash);
+  expect(relation.markerEnd).toBe(`url(#factory-marker-${relation.kind})`);
+  expect(relation.lineFill).toBe('none');
+  expect(relation.lineStroke).toBe(expected.color);
+  expect(Number.parseFloat(relation.lineWidth)).toBeGreaterThan(0);
+  expect(relation.hitFillAttribute).toBe('none');
+  expect(relation.hitStrokeAttribute).toBe('var(--factory-ink)');
+  expect(relation.hitOpacityAttribute).toBe('0.001');
+  expect(relation.hitWidthAttribute).toBe('18');
+  expect(relation.hitPointerEventsAttribute).toBe('stroke');
+  expect(relation.hitFill).toBe('none');
+  expect(relation.hitStroke).toBe('rgb(29, 36, 31)');
+  expect(Number.parseFloat(relation.hitOpacity)).toBeLessThanOrEqual(0.01);
+  expect(Number.parseFloat(relation.hitWidth)).toBeGreaterThanOrEqual(18);
+  expect(relation.hitPointerEvents).toBe('stroke');
+  expect(relation.markerFillAttribute).toBe(expected.token);
+  expect(relation.markerStrokeAttribute).toBe('none');
+  expect(relation.markerFill).toBe(expected.color);
+  expect(relation.markerFill).toBe(relation.lineStroke);
+}
+
 async function waitForCameraSettled(page: Page) {
   await page.waitForFunction(() => {
     const world = document.querySelector<HTMLElement>('.factory-scene-canvas__world');
@@ -88,6 +227,7 @@ test('desktop scene renders every routed relation and exposes one-shot interacti
   await expect(page.getByRole('dialog', { name: /生产关系/u })).toBeVisible();
   await expect(page.getByText('由 Markdown 层级与确定性关系规则自动生成')).toBeVisible();
   await page.getByRole('button', { name: '关闭关系详情' }).click();
+  await expect(page.locator('.factory-scene-edge__tracer')).toHaveCount(0, { timeout: 1_000 });
 
   await expect(page).toHaveScreenshot('playbook-overview.png');
 });
@@ -187,6 +327,20 @@ test('viewport PNG and full-scene SVG export real production-rendered artifacts 
   const png = readFileSync(pngPath!);
   expect(png.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
   expect(png.byteLength).toBeGreaterThan(1_000);
+  const { data: pngPixels, info: pngInfo } = await sharp(png)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let nearBlackPixels = 0;
+  for (let index = 0; index < pngPixels.length; index += 4) {
+    const red = pngPixels[index];
+    const green = pngPixels[index + 1];
+    const blue = pngPixels[index + 2];
+    const alpha = pngPixels[index + 3];
+    if (alpha > 250 && red < 8 && green < 8 && blue < 8) nearBlackPixels += 1;
+  }
+  expect(nearBlackPixels / (pngInfo.width * pngInfo.height)).toBeLessThan(0.01);
+  expect((await sharp(png).stats()).entropy).toBeGreaterThan(1);
 
   const svgDownloadPromise = page.waitForEvent('download');
   await page.getByTitle('导出完整场景 SVG').click();
@@ -198,8 +352,65 @@ test('viewport PNG and full-scene SVG export real production-rendered artifacts 
   expect(svg).toContain('factory-scene-edge__line');
   expect((svg.match(/data-node-id=/g) ?? []).length).toBe(expectedSceneNodes);
   expect((svg.match(/data-edge-id=/g) ?? []).length).toBe(expectedSceneEdges);
+  const relationLines = svg.match(/<path[^>]*class="factory-scene-edge__line"[^>]*>/g) ?? [];
+  const relationHits = svg.match(/<path[^>]*class="factory-scene-edge__hit"[^>]*>/g) ?? [];
+  const relationMarkers = svg.match(/<path[^>]*class="factory-scene-marker [^"]+"[^>]*>/g) ?? [];
+  expect(relationLines).toHaveLength(expectedSceneEdges);
+  expect(relationHits).toHaveLength(expectedSceneEdges);
+  expect(relationMarkers).toHaveLength(4);
+  for (const path of relationLines) {
+    expect(path).toContain('fill="none"');
+    expect(path).toMatch(/stroke="var\(--factory-pipeline-(?:main|dependency|governance|resource)\)"/);
+    expect(path).toMatch(/stroke-width="(?:1\.5|2|3|4)"/);
+    expect(path).not.toContain('pathLength=');
+  }
+  for (const path of relationHits) {
+    expect(path).toContain('fill="none"');
+    expect(path).toContain('stroke="var(--factory-ink)"');
+    expect(path).toContain('stroke-opacity="0.001"');
+    expect(path).toContain('stroke-width="18"');
+  }
+  for (const path of relationMarkers) {
+    expect(path).toMatch(/fill="var\(--factory-pipeline-(?:main|dependency|governance|resource)\)"/);
+  }
   expect(svg).not.toContain('OWNER / MODULE');
   await expect(page.locator('.factory-scene-canvas')).toHaveAttribute('data-render-mode', 'virtualized');
+
+  const standaloneRelations = await inspectStandaloneRelations(
+    page,
+    svg,
+    'http://doccanvas-export.test/playbook-v2-overview.svg',
+  );
+  expect(standaloneRelations).toHaveLength(expectedSceneEdges);
+  for (const relation of standaloneRelations) expectStandaloneRelationContract(relation);
+});
+
+test('full-scene SVG export executes every semantic relation presentation branch', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'Four-kind export acceptance runs once.');
+  await page.goto('/e2e-fixtures/factory-relations');
+  const fixture = page.locator('.factory-relation-export-fixture');
+  await expect(fixture).toHaveAttribute('data-relation-kinds', 'flow,dependency,governance,resource');
+  await expect(page.locator('.factory-scene-edge__line')).toHaveCount(4);
+  for (const kind of Object.keys(RELATION_PRESENTATION) as RelationKind[]) {
+    await expect(page.locator(`.factory-scene-edge--${kind}`)).toHaveCount(1);
+  }
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: '导出关系 SVG' }).click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  expect(path).not.toBeNull();
+  const svg = readFileSync(path!, 'utf8');
+  const standaloneRelations = await inspectStandaloneRelations(
+    page,
+    svg,
+    'http://doccanvas-export.test/four-relation-kinds.svg',
+  );
+  expect(standaloneRelations).toHaveLength(4);
+  expect(new Set(standaloneRelations.map(relation => relation.kind))).toEqual(
+    new Set(Object.keys(RELATION_PRESENTATION) as RelationKind[]),
+  );
+  for (const relation of standaloneRelations) expectStandaloneRelationContract(relation);
 });
 
 test('desktop owner workflow performs CRUD, CAS conflict and revision restore in isolated data', async ({ page }, testInfo) => {

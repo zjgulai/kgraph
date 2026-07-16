@@ -1,6 +1,6 @@
 ---
 title: DocCanvas Factory Scene v3 工程记录
-status: local_hardening_verified_awaiting_release_identity
+status: local_export_hotfix_verified_awaiting_release_identity
 updated: 2026-07-16
 ---
 
@@ -26,7 +26,7 @@ DocCanvas graph
 - Markdown 节点 ID 使用 document ID、section hash 和重复序号；引用节点由宿主稳定 ID 与规范化名称派生，通用模块 ID 由其 H2 节点派生。无关章节的插入或移动不会改写既有身份。
 - 关系路径为确定性正交 `M/L`；模型、layout、scene 和实际 SVG 边数一致。
 - 普通、治理、依赖与资源关系同时以颜色、线型和中文标签区分。
-- 静止状态不循环动画；一次性 tracer 为 260ms，可取消重启；reduced motion 不创建 tracer。
+- 静止状态不循环动画；一次性 tracer 动画为 260ms、活动状态在 280ms 清除，可取消重启；reduced motion 与 full-scene export 均不创建 tracer。
 - 拖动期间无 transform transition；端点即时跟随，50ms 增量避障，释放后精确重路由。
 - 屋顶占高固定为 72px；工业锯齿采光顶只使用语义 token，并以 8px 深度面表达克制的 2.5D，不增加无信息头部高度。
 - 语义缩放阈值为 `<0.45` 聚合、`0.45–0.8` 简化、`>0.8` 完整。
@@ -60,11 +60,13 @@ Owner UI 只在服务端确认 HttpOnly 会话后渲染。mutation 使用 revisi
 - section body 若没有尾换行，直接拼接下一 heading 会让 Markdown 解析器吞并后续模块；replacement 在非空 suffix 前必须补用源文档行尾风格。mutation 与 restore 的精确重放以 canonical request hash、当前 revision/hash 和最新 audit entry 三者一致为前提返回原结果，其他 stale request 仍返回冲突。
 - 双层 Nginx 中 edge 不得把 shared proxy 已确认的 public `X-Forwarded-Proto` 覆盖成内部 HTTP `$scheme`；shared 负责覆盖外部输入，edge 透传，应用继续对 protocol/Host 做 fail-closed 校验。
 - Node 默认 `umask 0022` 会让未指定 mode 的原子临时文件落成 `0644`；`atomicWriteText()` 必须显式创建 `0750` 父目录和 `0640` 临时文件，再执行 rename。unit、mutation 集成测试与 Owner image smoke 都必须检查实际 mode，不能只依赖部署前一次性 `chmod`。
+- `html-to-image` 深克隆 DOM 时不会把嵌套 SVG 子节点的 computed CSS 递归固化；关系 `path` 只依赖外部 class 时，下载产物会回退到 SVG 默认 `fill: black`，把开放正交路径隐式闭合成大面积黑色多边形。所有 export-visible line、hit path、marker、label 和 tracer 都必须携带完整 presentation attributes；真实虚线使用用户坐标长度，不设置归一化 `pathLength`。
+- 导出回归不能只检查文件头、字节数、class 或边数。Chromium 必须用 gated production-rendering fixture 实跑 flow、dependency、governance、resource 四种分支，下载后以 `image/svg+xml` 独立文档重新打开并校验精确 RGB、线宽、dash、marker 与 18px 命中层；PNG 同时保留 Sharp 解码、entropy 与近纯黑像素灾难门。
 
 ## 验证门
 
 - `npm test`：模型、scene、路由、状态迁移、Owner 会话、mutation/revision、Sharp、Docker 契约。
 - `npm run typecheck` 与 `npm run build`。
-- Playwright Chromium/WebKit/移动端：三文档边数、关系 Inspector/tracer、焦点、reduced motion、Owner CRUD/CAS/restore、安全负例、PNG/SVG、视觉快照。
+- Playwright Chromium/WebKit/移动端：三文档边数、关系 Inspector/一次性 tracer、焦点、reduced motion、Owner CRUD/CAS/restore、安全负例、PNG、独立 SVG 与四关系 presentation fixture、视觉快照。
 - Chromium 规模夹具：1000 scene nodes、2000 relations、FCI ≤2.5s、渲染 ≤350/700、55fps、重路由 p95 ≤50ms。
 - Owner amd64 image smoke 与 Compose config 只能证明 L2 候选，不等于生产验收。

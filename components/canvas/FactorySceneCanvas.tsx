@@ -71,6 +71,34 @@ const MAX_ZOOM = 2.5;
 const NODE_RENDER_LIMIT = 350;
 const EDGE_RENDER_LIMIT = 700;
 const ROUTE_THROTTLE_MS = 50;
+const TRACE_CLEAR_DELAY_MS = 280;
+
+interface RelationSvgPresentation {
+  stroke: string;
+  strokeWidth: number;
+  strokeDasharray?: string;
+}
+
+const RELATION_SVG_PRESENTATION: Record<ArchitectureLayoutEdge['kind'], RelationSvgPresentation> = {
+  flow: {
+    stroke: 'var(--factory-pipeline-main)',
+    strokeWidth: 3,
+  },
+  dependency: {
+    stroke: 'var(--factory-pipeline-dependency)',
+    strokeWidth: 2,
+    strokeDasharray: '8 6',
+  },
+  governance: {
+    stroke: 'var(--factory-pipeline-governance)',
+    strokeWidth: 2,
+    strokeDasharray: '10 3 2 3',
+  },
+  resource: {
+    stroke: 'var(--factory-pipeline-resource)',
+    strokeWidth: 1.5,
+  },
+};
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
@@ -167,6 +195,8 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
   const panRef = useRef<PanState | null>(null);
   const routeTimerRef = useRef<number | null>(null);
   const cameraTimerRef = useRef<number | null>(null);
+  const traceTimerRef = useRef<number | null>(null);
+  const traceGenerationRef = useRef(0);
   const previousViewKeyRef = useRef(viewKey);
   const pendingAutoFitRef = useRef(autoFitOnMount && !initialViewport);
   const [viewport, setViewportState] = useState<FactoryViewport>(viewportRef.current);
@@ -243,7 +273,13 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const sync = () => setReducedMotion(media.matches);
+    const sync = () => {
+      setReducedMotion(media.matches);
+      if (!media.matches) return;
+      if (traceTimerRef.current !== null) window.clearTimeout(traceTimerRef.current);
+      traceTimerRef.current = null;
+      setTrace(previous => ({ ...previous, edgeIds: new Set() }));
+    };
     sync();
     media.addEventListener('change', sync);
     return () => media.removeEventListener('change', sync);
@@ -285,6 +321,7 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
   useEffect(() => () => {
     if (routeTimerRef.current !== null) window.clearTimeout(routeTimerRef.current);
     if (cameraTimerRef.current !== null) window.clearTimeout(cameraTimerRef.current);
+    if (traceTimerRef.current !== null) window.clearTimeout(traceTimerRef.current);
   }, []);
 
   const activeNodeId = hoveredNodeId ?? highlightedSceneNodeId ?? selectedSceneNodeId ?? null;
@@ -297,7 +334,16 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
   const triggerTrace = useCallback((edgeIds: Iterable<string>) => {
     const ids = new Set(edgeIds);
     if (ids.size === 0 || reducedMotion) return;
-    setTrace(previous => ({ generation: previous.generation + 1, edgeIds: ids }));
+    if (traceTimerRef.current !== null) window.clearTimeout(traceTimerRef.current);
+    const generation = traceGenerationRef.current + 1;
+    traceGenerationRef.current = generation;
+    setTrace({ generation, edgeIds: ids });
+    traceTimerRef.current = window.setTimeout(() => {
+      setTrace(previous => previous.generation === generation
+        ? { generation, edgeIds: new Set() }
+        : previous);
+      traceTimerRef.current = null;
+    }, TRACE_CLEAR_DELAY_MS);
   }, [reducedMotion]);
 
   useEffect(() => {
@@ -553,27 +599,37 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
           width={scene.bounds.width}
           height={scene.bounds.height}
           viewBox={`${scene.bounds.x} ${scene.bounds.y} ${scene.bounds.width} ${scene.bounds.height}`}
+          overflow="visible"
           aria-label={`${scene.edges.length} 条生产关系`}
         >
           <defs>
-            {(['flow', 'dependency', 'governance', 'resource'] as const).map(kind => (
-              <marker
-                id={markerId(kind)}
-                key={kind}
-                markerWidth="10"
-                markerHeight="10"
-                refX="9"
-                refY="5"
-                orient="auto"
-                markerUnits="userSpaceOnUse"
-              >
-                <path className={`factory-scene-marker factory-scene-marker--${kind}`} d="M 0 0 L 10 5 L 0 10 Z" />
-              </marker>
-            ))}
+            {(['flow', 'dependency', 'governance', 'resource'] as const).map(kind => {
+              const presentation = RELATION_SVG_PRESENTATION[kind];
+              return (
+                <marker
+                  id={markerId(kind)}
+                  key={kind}
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="9"
+                  refY="5"
+                  orient="auto"
+                  markerUnits="userSpaceOnUse"
+                >
+                  <path
+                    className={`factory-scene-marker factory-scene-marker--${kind}`}
+                    d="M 0 0 L 10 5 L 0 10 Z"
+                    fill={presentation.stroke}
+                    stroke="none"
+                  />
+                </marker>
+              );
+            })}
           </defs>
           {visibleEdges.map(edge => {
             const connected = connectedEdges.has(edge.id) || selectedEdgeId === edge.id;
             const dimmed = hasActiveRelation && !connected;
+            const presentation = RELATION_SVG_PRESENTATION[edge.kind];
             const label = relationLabel(edge);
             const sourceNode = sceneNodeById.get(edge.source);
             const targetNode = sceneNodeById.get(edge.target);
@@ -594,11 +650,22 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
                   className="factory-scene-edge__line"
                   d={edge.path}
                   markerEnd={`url(#${markerId(edge.kind)})`}
-                  pathLength="1"
+                  fill="none"
+                  stroke={presentation.stroke}
+                  strokeWidth={presentation.strokeWidth}
+                  strokeDasharray={presentation.strokeDasharray}
+                  strokeLinecap="square"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
                 />
                 <path
                   className="factory-scene-edge__hit"
                   d={edge.path}
+                  fill="none"
+                  stroke="var(--factory-ink)"
+                  strokeOpacity="0.001"
+                  strokeWidth="18"
+                  pointerEvents="stroke"
                   data-has-area={(
                     Math.max(...edge.waypoints.map(point => point.x)) > Math.min(...edge.waypoints.map(point => point.x))
                     && Math.max(...edge.waypoints.map(point => point.y)) > Math.min(...edge.waypoints.map(point => point.y))
@@ -636,12 +703,37 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
                 />
                 {edge.label ? (
                   <g className="factory-scene-edge__label" transform={`translate(${edge.labelPoint.x} ${edge.labelPoint.y})`}>
-                    <rect x="-34" y="-10" width="68" height="20" rx="3" />
-                    <text textAnchor="middle" dominantBaseline="central">{edge.label}</text>
+                    <rect
+                      x="-34"
+                      y="-10"
+                      width="68"
+                      height="20"
+                      rx="3"
+                      fill="color-mix(in srgb, var(--factory-surface) 94%, transparent)"
+                      stroke="var(--factory-border)"
+                    />
+                    <text
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fill="var(--factory-muted)"
+                      fontFamily="var(--factory-font-mono)"
+                      fontSize="10"
+                      fontWeight="var(--factory-weight-semibold)"
+                    >
+                      {edge.label}
+                    </text>
                   </g>
                 ) : null}
-                {!reducedMotion && trace.edgeIds.has(edge.id) ? (
-                  <circle key={`${trace.generation}:${edge.id}`} className="factory-scene-edge__tracer" r="4">
+                {!renderAll && !reducedMotion && trace.edgeIds.has(edge.id) ? (
+                  <circle
+                    key={`${trace.generation}:${edge.id}`}
+                    className="factory-scene-edge__tracer"
+                    r="4"
+                    fill="var(--factory-surface-raised)"
+                    stroke="var(--factory-green)"
+                    strokeWidth="2"
+                    vectorEffect="non-scaling-stroke"
+                  >
                     <animateMotion dur="260ms" repeatCount="1" fill="freeze" path={edge.path} />
                   </circle>
                 ) : null}

@@ -542,6 +542,20 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visib
 }
 .factory-scene-canvas:active { cursor: grabbing; }
 .factory-scale-fixture { width: 100vw; height: 100dvh; background: var(--factory-canvas); }
+.factory-relation-export-fixture { position: relative; }
+.factory-relation-export-fixture__export {
+  position: absolute;
+  z-index: 20;
+  top: 16px;
+  right: 16px;
+  min-height: 44px;
+  border: 1px solid var(--factory-green);
+  border-radius: var(--factory-radius-control);
+  background: var(--factory-surface-raised);
+  padding: 0 14px;
+  color: var(--factory-green);
+  font-weight: var(--factory-weight-semibold);
+}
 .factory-scale-node {
   display: grid;
   width: 100%;
