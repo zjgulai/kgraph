@@ -74,20 +74,27 @@ function moduleAndNode(title: string) {
 test('mutation transaction inserts, updates, duplicates, moves and soft-deletes with CAS revisions', async () => {
   const first = moduleAndNode('Node One');
   const baseHash = documentContentHash(readFileSync(filePath, 'utf8'));
-  const inserted = await mutateDocument('playbook-v2', {
+  const insertRequest = {
     baseRevision: 0,
     baseDocumentHash: baseHash,
     operation: {
-      type: 'insertNode',
+      type: 'insertNode' as const,
       moduleId: first.moduleId,
       afterSectionHash: first.sectionHash,
       title: 'Inserted Node',
       content: 'Inserted body.\n',
-      nodeType: 'prompt',
+      nodeType: 'prompt' as const,
     },
-  });
+  };
+  const inserted = await mutateDocument('playbook-v2', insertRequest);
   assert.equal(inserted.revision, 1);
   assert.ok(inserted.document.nodes.some(node => node.title === 'Inserted Node' && node.type === 'prompt'));
+  assert.equal(listDocumentRevisions('playbook-v2').length, 1);
+
+  const replayed = await mutateDocument('playbook-v2', insertRequest);
+  assert.equal(replayed.revision, inserted.revision);
+  assert.equal(replayed.mutationId, inserted.mutationId);
+  assert.equal(replayed.presentation.documentHash, inserted.presentation.documentHash);
   assert.equal(listDocumentRevisions('playbook-v2').length, 1);
 
   await assert.rejects(() => mutateDocument('playbook-v2', {
@@ -109,7 +116,7 @@ test('mutation transaction inserts, updates, duplicates, moves and soft-deletes 
       nodeId: insertedCurrent.node.id,
       sectionHash: insertedCurrent.sectionHash,
       title: 'Inserted Node Renamed',
-      content: 'Updated body.\n',
+      content: 'Updated body.',
       nodeType: 'tool',
     },
   });
@@ -119,6 +126,7 @@ test('mutation transaction inserts, updates, duplicates, moves and soft-deletes 
     && node.content.includes('Updated body.')
     && node.type === 'tool'
   )));
+  assert.ok(updated.document.nodes.some(node => node.title === 'Node Two'));
 
   const renamed = moduleAndNode('Inserted Node Renamed');
   const duplicated = await mutateDocument('playbook-v2', {
@@ -189,5 +197,11 @@ test('restoring a revision creates a new revision instead of deleting history', 
   const restored = await restoreDocumentRevision('playbook-v2', oldest.id, 5, currentHash);
   assert.equal(restored.revision, 6);
   assert.equal(restored.document.nodes.some(node => node.title === 'Inserted Node'), false);
-  assert.ok(listDocumentRevisions('playbook-v2').length >= 6);
+  const revisionCount = listDocumentRevisions('playbook-v2').length;
+  assert.ok(revisionCount >= 6);
+
+  const replayed = await restoreDocumentRevision('playbook-v2', oldest.id, 5, currentHash);
+  assert.equal(replayed.revision, restored.revision);
+  assert.equal(replayed.mutationId, restored.mutationId);
+  assert.equal(listDocumentRevisions('playbook-v2').length, revisionCount);
 });

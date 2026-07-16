@@ -582,7 +582,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visib
   overflow: visible;
 }
 .factory-scene-canvas__pipelines { z-index: 2; pointer-events: none; }
-.factory-scene-canvas__nodes { z-index: 3; pointer-events: none; }
+.factory-scene-canvas__nodes { z-index: auto; pointer-events: none; }
 .factory-scene-node {
   position: absolute;
   top: 0;
@@ -1617,11 +1617,11 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visib
   width: 100%;
   height: 100%;
   align-items: center;
-  justify-content: space-between;
+  overflow: visible;
   border: 1px solid color-mix(in srgb, var(--factory-slate) 46%, var(--factory-border));
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--factory-green) 7%, var(--factory-surface-raised)), var(--factory-surface) 62%, color-mix(in srgb, var(--factory-copper) 8%, var(--factory-surface)));
-  padding: 0 28px;
+    linear-gradient(90deg, color-mix(in srgb, var(--factory-green) 8%, var(--factory-surface-raised)), var(--factory-surface) 58%, color-mix(in srgb, var(--factory-copper) 9%, var(--factory-surface)));
+  padding: 0 310px 0 28px;
   box-shadow: inset 0 -8px 0 color-mix(in srgb, var(--factory-slate) 8%, transparent);
 }
 .factory-roof__cornice {
@@ -1633,20 +1633,54 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visib
   background: linear-gradient(90deg, var(--factory-green) 0 64%, var(--factory-copper) 64% 80%, var(--factory-slate) 80%);
 }
 .factory-roof__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   color: var(--factory-green);
   font-family: var(--factory-font-mono);
   font-size: var(--factory-engineering-label);
   font-weight: var(--factory-weight-bold);
   letter-spacing: var(--factory-tracking-label);
+  white-space: nowrap;
 }
-.factory-roof__vents { display: flex; gap: 7px; }
-.factory-roof__vents i {
+.factory-roof__label::before {
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--factory-copper);
+  content: '';
+  transform: rotate(45deg);
+}
+.factory-roof__profile {
+  position: absolute;
+  top: 9px;
+  right: 28px;
+  display: grid;
+  height: 50px;
+  grid-template-columns: repeat(3, 72px);
+  gap: 10px;
+}
+.factory-roof__profile i {
+  position: relative;
   display: block;
-  width: 28px;
-  height: 18px;
-  border: 1px solid var(--factory-border);
-  background: repeating-linear-gradient(90deg, var(--factory-slate) 0 2px, transparent 2px 6px);
-  opacity: .42;
+  width: 72px;
+  height: 44px;
+}
+.factory-roof__profile i::before,
+.factory-roof__profile i::after {
+  position: absolute;
+  content: '';
+  clip-path: polygon(0 100%, 0 72%, 36% 8%, 100% 8%, 100% 100%);
+}
+.factory-roof__profile i::before {
+  inset: 7px 0 0 7px;
+  background: color-mix(in srgb, var(--factory-slate) 26%, var(--factory-surface));
+}
+.factory-roof__profile i::after {
+  inset: 0 7px 7px 0;
+  background:
+    linear-gradient(118deg, transparent 0 31%, color-mix(in srgb, var(--factory-copper) 34%, transparent) 32% 38%, transparent 39%),
+    linear-gradient(180deg, color-mix(in srgb, var(--factory-green) 14%, var(--factory-surface-raised)), var(--factory-surface));
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--factory-green) 28%, transparent);
 }
 .factory-roof__depth {
   position: absolute;
@@ -2353,14 +2387,20 @@ button.architecture-cap__button.is-selected {
   }
   .mobile-architecture__hero h1,
   .mobile-architecture__sticky-header h1 {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
     margin: 8px 0 0;
     min-width: 0;
     overflow-wrap: anywhere;
     font-family: var(--factory-font-display);
-    font-size: clamp(1.75rem, 8vw, 2rem);
+    font-size: clamp(1.35rem, 5.2vw, 1.75rem);
+    letter-spacing: -.035em;
     line-height: 1.2;
     text-wrap: balance;
   }
+  .mobile-architecture__hero h1 > span { display: block; }
   .mobile-architecture__hero p,
   .mobile-architecture__sticky-header p { margin: 8px 0 0; color: var(--factory-muted); font-size: 12px; line-height: 1.6; }
   .mobile-process-rail { display: grid; gap: 16px; margin-top: 18px; }

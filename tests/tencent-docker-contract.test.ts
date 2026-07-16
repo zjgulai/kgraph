@@ -120,6 +120,16 @@ test('edge Nginx fails closed by Host and proxies deep app health through Docker
   assert.doesNotMatch(compose, /wget[^\n]*\/_edge_health\s*\|\s*grep/);
 });
 
+test('edge Nginx preserves the trusted public protocol across the second proxy hop', () => {
+  const edge = read('deploy/tencent/edge.nginx.conf');
+  const forwardedProtocolHeaders = edge.match(/proxy_set_header X-Forwarded-Proto \$http_x_forwarded_proto;/g) ?? [];
+  assert.equal(forwardedProtocolHeaders.length, 2);
+  assert.doesNotMatch(edge, /proxy_set_header X-Forwarded-Proto \$scheme;/);
+
+  const shared = read('deploy/tencent/shared-nginx-kgraph.block.conf');
+  assert.match(shared, /proxy_set_header X-Forwarded-Proto \$scheme;/);
+});
+
 test('shared Nginx block uses current HTTP/2 syntax', () => {
   const shared = read('deploy/tencent/shared-nginx-kgraph.block.conf');
   assert.match(shared, /listen 443 ssl;/);

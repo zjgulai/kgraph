@@ -197,12 +197,48 @@ test('overview exposes every room as an independently connectable child node', (
   }
 });
 
+test('cross-floor flow uses a compact vertical riser instead of a full-width U route', () => {
+  for (const [id, path] of BUILTINS) {
+    const layout = computeArchitectureOverviewLayout(
+      buildArchitectureViewModel(loadBuiltin(id, path)),
+    );
+    const nodeById = new Map(layout.nodes.map(node => [node.id, node]));
+    const crossFloorEdges = layout.edges.filter(edge => {
+      const source = nodeById.get(edge.source);
+      const target = nodeById.get(edge.target);
+      return edge.kind === 'flow'
+        && source?.kind === 'room'
+        && target?.kind === 'room'
+        && source.parentId !== target.parentId;
+    });
+
+    assert.ok(crossFloorEdges.length > 0, `${id} must expose cross-floor flow`);
+    for (const edge of crossFloorEdges) {
+      const xs = edge.waypoints.map(point => point.x);
+      const horizontalSpan = Math.max(...xs) - Math.min(...xs);
+      assert.ok(
+        horizontalSpan <= layout.bounds.width * 0.4,
+        `${id} ${edge.id} spans ${horizontalSpan}px across a ${layout.bounds.width}px floor`,
+      );
+    }
+  }
+});
+
 test('Playbook overview includes ordered flow plus an explicit governance relation', () => {
   const model = buildArchitectureViewModel(loadBuiltin('playbook-v2', 'documents/Playbook-v2.md'));
   const layout = computeArchitectureOverviewLayout(model);
+  const governance = layout.edges.find(edge => edge.kind === 'governance');
 
   assert.equal(layout.edges.filter(edge => edge.kind === 'flow').length, 7);
-  assert.ok(layout.edges.some(edge => edge.kind === 'governance'));
+  assert.ok(governance);
+  assert.equal(
+    governance.waypoints.slice(1).filter((point, index) => {
+      const previous = governance.waypoints[index];
+      return point.y === previous.y && point.x !== previous.x;
+    }).length,
+    1,
+    'governance relation should use one vertical riser with one target-floor entry segment',
+  );
   assert.ok(layout.edges.every(edge => edge.animated === false));
 });
 

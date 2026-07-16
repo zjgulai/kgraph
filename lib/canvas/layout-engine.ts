@@ -139,6 +139,7 @@ function overviewRoomNodes(
   floor: ArchitectureFloor,
   regionsById: ReadonlyMap<string, ArchitectureRegion>,
   overviewWidth: number,
+  reverseFlow: boolean,
 ): ArchitectureLayoutNode[] {
   const regions = floor.regionIds
     .map(regionId => regionsById.get(regionId))
@@ -150,20 +151,23 @@ function overviewRoomNodes(
     - ROOM_GAP * Math.max(0, regions.length - 1)
   ) / regions.length;
 
-  return regions.map((region, index) => ({
-    id: region.id,
-    kind: 'room',
-    position: {
-      x: FLOOR_INSET_X + index * (width + ROOM_GAP),
-      y: FLOOR_ROOM_TOP,
-    },
-    width,
-    height: FLOOR_ROOM_HEIGHT,
-    regionId: region.id,
-    regionIds: [region.id],
-    parentId: floor.id,
-    draggable: false,
-  }));
+  return regions.map((region, index) => {
+    const visualIndex = reverseFlow ? regions.length - index - 1 : index;
+    return {
+      id: region.id,
+      kind: 'room',
+      position: {
+        x: FLOOR_INSET_X + visualIndex * (width + ROOM_GAP),
+        y: FLOOR_ROOM_TOP,
+      },
+      width,
+      height: FLOOR_ROOM_HEIGHT,
+      regionId: region.id,
+      regionIds: [region.id],
+      parentId: floor.id,
+      draggable: false,
+    };
+  });
 }
 
 function absoluteRectanglesById(
@@ -283,14 +287,23 @@ function overviewEdges(
     const source = nodeById.get('region:module:security-governance');
     const target = nodeById.get('region:module:boundaries-evolution');
     if (source && target) {
+      const sourceRectangle = rectangles.get(source.id);
+      if (!sourceRectangle) throw new Error(`Missing governance geometry for ${source.id}.`);
       edges.push(createLayoutEdge(
         source,
         target,
         rectangles,
         obstacles,
         'governance',
-        edges.length,
-        { preferredAxis: 'vertical', label: '治理约束' },
+        0,
+        {
+          preferredAxis: 'vertical',
+          trunk: {
+            axis: 'x',
+            coordinate: sourceRectangle.x + sourceRectangle.width / 2,
+          },
+          label: '治理约束',
+        },
       ));
     }
   }
@@ -322,7 +335,9 @@ export function computeArchitectureOverviewLayout(
     : floorsInLifecycleOrder;
   floorsInVisualOrder.forEach((floor, index) => {
     nodes.push(overviewFloorNode(floor, { x: 0, y }, overviewWidth));
-    nodes.push(...overviewRoomNodes(floor, regionsById, overviewWidth));
+    // Alternate progression direction so the final room on one floor meets
+    // the first room on the next at a compact vertical riser.
+    nodes.push(...overviewRoomNodes(floor, regionsById, overviewWidth, floor.order % 2 === 0));
     y += FLOOR_HEIGHT;
     if (index < floorsInVisualOrder.length - 1) y += FLOOR_GAP;
   });

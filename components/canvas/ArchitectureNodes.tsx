@@ -153,7 +153,7 @@ export function ArchitectureCapNode({ data }: { data: ArchitectureCapData }) {
         <div className="factory-roof" aria-hidden="true">
           <span className="factory-roof__cornice" />
           <span className="factory-roof__label">LIVING PRODUCT FACTORY</span>
-          <span className="factory-roof__vents"><i /><i /><i /></span>
+          <span className="factory-roof__profile"><i /><i /><i /></span>
           <span className="factory-roof__depth" />
         </div>
       </section>

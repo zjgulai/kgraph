@@ -1,7 +1,7 @@
 ---
 title: DocCanvas Factory Scene v3 工程记录
-status: implementation_complete_local
-updated: 2026-07-15
+status: local_hardening_verified_awaiting_release_identity
+updated: 2026-07-16
 ---
 
 # Factory Scene v3 工程记录
@@ -28,6 +28,7 @@ DocCanvas graph
 - 普通、治理、依赖与资源关系同时以颜色、线型和中文标签区分。
 - 静止状态不循环动画；一次性 tracer 为 260ms，可取消重启；reduced motion 不创建 tracer。
 - 拖动期间无 transform transition；端点即时跟随，50ms 增量避障，释放后精确重路由。
+- 屋顶占高固定为 72px；工业锯齿采光顶只使用语义 token，并以 8px 深度面表达克制的 2.5D，不增加无信息头部高度。
 - 语义缩放阈值为 `<0.45` 聚合、`0.45–0.8` 简化、`>0.8` 完整。
 - 视口 overscan 后最多渲染 350 个 DOM 节点与 700 条 SVG 关系路径。
 - `factory-scene-v3` 只迁移旧 viewport、选中模块和展开状态，节点坐标重新布局。
@@ -54,6 +55,10 @@ Owner UI 只在服务端确认 HttpOnly 会话后渲染。mutation 使用 revisi
 - Next standalone 在容器或反向代理后的 `req.nextUrl.origin` 可能是内部 origin，不等于浏览器 `Origin`；Owner 同源校验使用 edge 覆盖后的 `Host` 和受限 `X-Forwarded-Proto` 重建网络 origin，非 `http/https`、多值 protocol 或非法 Host 均 fail closed。
 - Distroless Node 22 中的 stdin smoke 程序不得混用 CommonJS `require()` 与 top-level `await`；使用 `--input-type=module` 和 ESM import 锁定模块格式。
 - Docker `diff` 会把只读 bind-mounted secret 报告为 `/run` 下的新增挂载点；验证器先通过 inspect 确认两个精确 secret mount 均为 `bind:false`，然后只允许这两个路径及其直接挂载父节点；禁止把整个 `/run/**` 加入 diff allowlist。
+- SVG pipelines 与 DOM nodes 若分别形成 `z-index: 2/3` 的父级 stacking context，floor 壳体会覆盖所有关系线和 18px hit path；nodes 容器不得建立统一 stacking context，结构壳体、pipeline、room/content 必须分别处于 `0/2/3` 层，并由浏览器 `elementFromPoint` 验证真实命中。
+- 跨层主流程若每层都按同一方向排列，会在层尾到下一层层首形成整层 U 形折返；楼层按业务顺序蛇形排列，跨层 flow 进入短竖向 riser，治理关系使用独立源端竖向主干和单一目标接入段。
+- section body 若没有尾换行，直接拼接下一 heading 会让 Markdown 解析器吞并后续模块；replacement 在非空 suffix 前必须补用源文档行尾风格。mutation 与 restore 的精确重放以 canonical request hash、当前 revision/hash 和最新 audit entry 三者一致为前提返回原结果，其他 stale request 仍返回冲突。
+- 双层 Nginx 中 edge 不得把 shared proxy 已确认的 public `X-Forwarded-Proto` 覆盖成内部 HTTP `$scheme`；shared 负责覆盖外部输入，edge 透传，应用继续对 protocol/Host 做 fail-closed 校验。
 
 ## 验证门
 

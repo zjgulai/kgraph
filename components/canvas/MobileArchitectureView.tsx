@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ChevronRight, GitBranch, LibraryBig } from 'lucide-react';
 import type { DocNode } from '@/lib/parser/types';
+import { semanticTitleLines } from '@/lib/canvas/semantic-title';
 import type { ArchitectureRoomPreview } from './ArchitectureNodes';
 import { DigitalEmployee } from './DigitalEmployee';
 
@@ -95,6 +96,8 @@ export function MobileArchitectureView({
     if (highlightedTrack) setActiveTrack(highlightedTrack);
   }, [highlightedTrack]);
 
+  const [primaryDocumentTitle, secondaryDocumentTitle] = semanticTitleLines(documentTitle);
+
   if (focused) {
     const availableTracks = (['vibe', 'shared', 'pro'] as TrackKey[]).filter(track =>
       track === 'shared' || grouped[track].length > 0,
@@ -179,7 +182,10 @@ export function MobileArchitectureView({
     <main className="mobile-architecture">
       <header className="mobile-architecture__hero">
         <span>PRODUCT FACTORY / ARCHITECTURE</span>
-        <h1>{documentTitle}</h1>
+        <h1>
+          <span>{primaryDocumentTitle}</span>
+          {secondaryDocumentTitle && <span>{secondaryDocumentTitle}</span>}
+        </h1>
         <p>{version} · 点击楼层展开，再进入房间查看完整内容</p>
       </header>
 

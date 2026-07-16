@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import {
   appendFileSync,
   existsSync,
@@ -42,6 +42,17 @@ const TransactionSchema = z.object({
   afterRevision: z.number().int().min(1),
 }).strict();
 
+const AuditEntrySchema = z.object({
+  mutationId: z.string().min(1),
+  mutationType: z.string().min(1),
+  revision: z.number().int().min(1),
+  documentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  committedAt: z.string(),
+  requestHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  baseRevision: z.number().int().min(0).optional(),
+  baseDocumentHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+}).passthrough();
+
 export interface RevisionSummary {
   id: string;
   documentId: string;
@@ -61,6 +72,25 @@ interface MutationResult {
   presentation: DocumentPresentationSidecar;
   revision: number;
   mutationId: string;
+}
+
+type MutationAuditEntry = z.infer<typeof AuditEntrySchema>;
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+function requestHash(documentId: string, request: unknown): string {
+  return createHash('sha256')
+    .update(canonicalJson({ schemaVersion: 1, documentId, request }))
+    .digest('hex');
 }
 
 function sectionHashOf(node: DocNode): string | undefined {
@@ -161,8 +191,12 @@ function replaceSectionBody(
   const heading = section.heading === title
     ? markdown.slice(section.startOffset, section.headingEndOffset)
     : `${'#'.repeat(section.depth)} ${title}`;
-  const replacement = `${heading}${separator}${content}`;
-  return markdown.slice(0, section.startOffset) + replacement + markdown.slice(section.endOffset);
+  const suffix = markdown.slice(section.endOffset);
+  let replacement = `${heading}${separator}${content}`;
+  if (suffix && !/[\r\n]$/u.test(replacement) && !/^[\r\n]/u.test(suffix)) {
+    replacement += lineBreak(markdown);
+  }
+  return markdown.slice(0, section.startOffset) + replacement + suffix;
 }
 
 function nodeByHash(document: DocCanvas, hash: string): DocNode {
@@ -460,6 +494,37 @@ function appendAudit(documentId: string, entry: Record<string, unknown>): void {
   appendFileSync(filePath, `${JSON.stringify(entry)}\n`, { encoding: 'utf8', mode: 0o640 });
 }
 
+function latestAuditEntry(documentId: string): MutationAuditEntry | undefined {
+  const filePath = projectPath(join(AUDIT_DIR, `${documentId}.jsonl`));
+  if (!existsSync(filePath)) return undefined;
+  const lines = readFileSync(filePath, 'utf8').split(/\r?\n/u).filter(Boolean);
+  if (lines.length === 0) return undefined;
+  return AuditEntrySchema.parse(JSON.parse(lines[lines.length - 1]));
+}
+
+function replayedMutationResult(
+  documentId: string,
+  filePath: string,
+  markdown: string,
+  sidecar: DocumentPresentationSidecar,
+  fingerprint: string,
+): MutationResult | undefined {
+  const audit = latestAuditEntry(documentId);
+  if (
+    !audit
+    || audit.requestHash !== fingerprint
+    || audit.revision !== sidecar.revision
+    || audit.documentHash !== documentContentHash(markdown)
+  ) return undefined;
+  const parsed = parseMarkdownToGraph(markdown, documentId, filePath);
+  return {
+    document: applyDocumentSidecar(parsed, sidecar),
+    presentation: sidecar,
+    revision: sidecar.revision,
+    mutationId: audit.mutationId,
+  };
+}
+
 function pruneRevisions(documentId: string, now = Date.now()): void {
   const root = projectPath(join(REVISION_DIR, documentId));
   if (!existsSync(root)) return;
@@ -482,6 +547,9 @@ function commitTransaction(input: {
   nextSidecar: DocumentPresentationSidecar;
   mutationId: string;
   mutationType: string;
+  requestHash: string;
+  baseRevision: number;
+  baseDocumentHash: string;
   hadPresentation: boolean;
   snapshotDir: string;
 }): void {
@@ -506,6 +574,9 @@ function commitTransaction(input: {
       revision: input.nextSidecar.revision,
       documentHash: input.nextSidecar.documentHash,
       committedAt: input.nextSidecar.updatedAt,
+      requestHash: input.requestHash,
+      baseRevision: input.baseRevision,
+      baseDocumentHash: input.baseDocumentHash,
     });
     rmSync(journalPath, { force: true });
   } catch (error) {
@@ -523,6 +594,7 @@ export async function mutateDocument(
   const filePath = projectPath(entry.path);
   if (!existsSync(filePath)) throw new Error('Document file not found.');
   const sidecarPath = presentationSidecarPath(documentId);
+  const fingerprint = requestHash(documentId, request);
 
   return withFileLock(`${filePath}.lock`, () => {
     recoverIncompleteTransaction(documentId, filePath, sidecarPath);
@@ -530,6 +602,8 @@ export async function mutateDocument(
     const hash = documentContentHash(markdown);
     const sidecar = readPresentationSidecar(documentId, markdown);
     if (request.baseDocumentHash !== hash || request.baseRevision !== sidecar.revision) {
+      const replayed = replayedMutationResult(documentId, filePath, markdown, sidecar, fingerprint);
+      if (replayed) return replayed;
       throw new Error('Document revision conflict. Reload before saving.');
     }
 
@@ -561,6 +635,9 @@ export async function mutateDocument(
       nextSidecar,
       mutationId,
       mutationType: request.operation.type,
+      requestHash: fingerprint,
+      baseRevision: request.baseRevision,
+      baseDocumentHash: request.baseDocumentHash,
       hadPresentation,
       snapshotDir: snapshot.directory,
     });
@@ -605,12 +682,20 @@ export async function restoreDocumentRevision(
   const sidecarPath = presentationSidecarPath(documentId);
   const revisionDir = projectPath(join(REVISION_DIR, documentId, revisionId));
   if (!existsSync(join(revisionDir, 'manifest.json'))) throw new Error('Revision not found.');
+  const fingerprint = requestHash(documentId, {
+    type: 'restoreRevision',
+    revisionId,
+    baseRevision,
+    baseDocumentHash,
+  });
 
   return withFileLock(`${filePath}.lock`, () => {
     recoverIncompleteTransaction(documentId, filePath, sidecarPath);
     const markdown = readFileSync(filePath, 'utf8');
     const sidecar = readPresentationSidecar(documentId, markdown);
     if (sidecar.revision !== baseRevision || documentContentHash(markdown) !== baseDocumentHash) {
+      const replayed = replayedMutationResult(documentId, filePath, markdown, sidecar, fingerprint);
+      if (replayed) return replayed;
       throw new Error('Document revision conflict. Reload before restoring.');
     }
     const restoredMarkdown = readFileSync(revisionDocumentPath(revisionDir), 'utf8');
@@ -635,6 +720,9 @@ export async function restoreDocumentRevision(
       nextSidecar,
       mutationId,
       mutationType: 'restoreRevision',
+      requestHash: fingerprint,
+      baseRevision,
+      baseDocumentHash,
       hadPresentation,
       snapshotDir: snapshot.directory,
     });

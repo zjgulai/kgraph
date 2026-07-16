@@ -86,8 +86,9 @@ test('tablet controls keep 44px targets without wrapping the fixed header', () =
   assert.match(tablet, /\.architecture-stage-nav[\s\S]*?overflow-x:\s*auto/u);
 });
 
-test('mobile headings and cards wrap long unbroken labels instead of relying on body clipping', () => {
-  assert.match(css, /\.mobile-architecture__hero h1,[\s\S]*?overflow-wrap:\s*anywhere/u);
+test('mobile headings stay within two semantic lines and cards wrap long unbroken labels', () => {
+  assert.match(css, /\.mobile-architecture__hero h1,[\s\S]*?-webkit-line-clamp:\s*2/u);
+  assert.match(mobile, /semanticTitleLines\(documentTitle\)/u);
   assert.match(css, /\.mobile-process-room > button[\s\S]*?min-width:\s*0/u);
   assert.match(css, /\.mobile-process-room > button strong,[\s\S]*?overflow-wrap:\s*anywhere/u);
   assert.match(css, /\.mobile-architecture__node-list strong[\s\S]*?overflow-wrap:\s*anywhere/u);

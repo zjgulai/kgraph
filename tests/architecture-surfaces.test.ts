@@ -66,6 +66,15 @@ test('desktop canvas renders routed SVG pipelines with explicit relation data', 
   assert.match(sceneModel, /routeOrthogonalEdge/);
 });
 
+test('pipeline layer remains above structural shells and below interactive cards', () => {
+  assert.match(css, /\.factory-scene-canvas__pipelines\s*\{[^}]*z-index:\s*2/u);
+  assert.match(css, /\.factory-scene-canvas__nodes\s*\{[^}]*z-index:\s*auto/u);
+  assert.match(
+    sceneCanvas,
+    /node\.kind === 'floor' \|\| node\.kind === 'group' \? 0[\s\S]*?node\.kind === 'room' \|\| node\.kind === 'content' \? 3/u,
+  );
+});
+
 test('factory layout leaves the main thread through a module worker and retains a fail-fast fallback', () => {
   assert.match(canvasViewer, /useFactoryLayout/);
   assert.match(layoutHook, /new Worker\(/);
@@ -116,8 +125,11 @@ test('overview rooms render deterministic digital employees over semantic room e
 test('roof is a restrained 72px industrial cornice and room text remains front-facing in 2.5D', () => {
   assert.match(architectureNodes, /d\.kind === 'roof'/);
   assert.match(architectureNodes, /factory-roof__cornice/);
+  assert.match(architectureNodes, /factory-roof__profile/);
   assert.match(architectureNodes, /factory-roof__depth/);
   assert.match(css, /\.factory-roof__cornice/u);
+  assert.match(css, /\.factory-roof__profile i::before[\s\S]*?clip-path:\s*polygon/u);
+  assert.match(css, /\.factory-roof__profile i::after[\s\S]*?clip-path:\s*polygon/u);
   assert.match(read('lib/canvas/layout-engine.ts'), /const ROOF_HEIGHT = 72/);
   assert.match(css, /\.architecture-floor::before/u);
   assert.match(css, /\.architecture-room:hover[\s\S]*?translateY\(-2px\)/u);
@@ -235,6 +247,21 @@ test('mobile overview preserves module relations in a vertical process rail', ()
   assert.doesNotMatch(mobileView, /setOpenFloor|mobile-floor__toggle/u);
 });
 
+test('mobile overview splits long product titles into at most two semantic lines', () => {
+  const markup = renderToStaticMarkup(React.createElement(MobileArchitectureView, {
+    documentTitle: 'AI产品全链路开发骨干路线图 — Vibe Track Edition',
+    version: 'v1',
+    floors: [],
+    presentationByNodeId: {},
+    onOpenRoom: () => {},
+    onBack: () => {},
+    onOpenNode: () => {},
+  }));
+
+  assert.match(markup, /<h1><span>AI产品全链路开发骨干路线图<\/span><span>Vibe Track Edition<\/span><\/h1>/u);
+  assert.match(css, /\.mobile-architecture__hero h1,[\s\S]*?-webkit-line-clamp:\s*2/u);
+});
+
 test('mobile rooms expose the same digital employee, status, and work counts as desktop', () => {
   const employee = FACTORY_EMPLOYEE_ROLES[0];
   const factory = {
@@ -277,10 +304,10 @@ test('mobile rooms expose the same digital employee, status, and work counts as 
   assert.match(mobileView, /<DigitalEmployee/);
 });
 
-test('mobile factory uses 28–32px headings, viewport-safe width, and 44px controls', () => {
+test('mobile factory uses bounded headings, viewport-safe width, and 44px controls', () => {
   const mobileMedia = css.slice(css.lastIndexOf('@media (max-width: 767px)'));
   assert.match(mobileMedia, /\.mobile-architecture\s*\{[\s\S]*?max-width:\s*100%[\s\S]*?overflow-x:\s*clip/u);
-  assert.match(mobileMedia, /\.mobile-architecture__hero h1,[\s\S]*?font-size:\s*clamp\(1\.75rem,[^;]+2rem\)/u);
+  assert.match(mobileMedia, /\.mobile-architecture__hero h1,[\s\S]*?font-size:\s*clamp\(1\.35rem,[^;]+1\.75rem\)/u);
   assert.match(mobileMedia, /\.mobile-canvas-toolbar a,[\s\S]*?width:\s*44px[\s\S]*?height:\s*44px/u);
   assert.match(mobileMedia, /\.mobile-process-room > button[\s\S]*?min-height:\s*(?:[4-9][4-9]|[1-9]\d{2,})px/u);
 });
