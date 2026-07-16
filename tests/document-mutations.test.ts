@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { after, before, test } from 'node:test';
@@ -69,6 +69,23 @@ function moduleAndNode(title: string) {
   const sectionHash = node.metadata.sectionHash;
   assert.equal(typeof sectionHash, 'string');
   return { graph, model, node, moduleId, sectionHash: sectionHash as string };
+}
+
+function descendants(directory: string): { directories: string[]; files: string[] } {
+  const directories: string[] = [];
+  const files: string[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      directories.push(path);
+      const nested = descendants(path);
+      directories.push(...nested.directories);
+      files.push(...nested.files);
+    } else if (entry.isFile()) {
+      files.push(path);
+    }
+  }
+  return { directories, files };
 }
 
 test('mutation transaction inserts, updates, duplicates, moves and soft-deletes with CAS revisions', async () => {
@@ -187,6 +204,15 @@ test('mutation transaction inserts, updates, duplicates, moves and soft-deletes 
       parentSectionHash: descendant.sectionHash,
     },
   }), /own descendant/i);
+
+  const generated = descendants(join(root, 'data'));
+  assert.ok(generated.files.length > 0);
+  for (const directory of generated.directories) {
+    assert.equal(statSync(directory).mode & 0o777, 0o750, directory);
+  }
+  for (const generatedFile of [filePath, ...generated.files]) {
+    assert.equal(statSync(generatedFile).mode & 0o777, 0o640, generatedFile);
+  }
 });
 
 test('restoring a revision creates a new revision instead of deleting history', async () => {

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import test, { type TestContext } from 'node:test';
-import { withFileLock } from '../lib/server/file-ops';
+import { atomicWriteJson, atomicWriteText, withFileLock } from '../lib/server/file-ops';
 
 const DEAD_PID = 2_147_483_647;
 const STALE_CREATED_AT = Date.now() - 31_000;
@@ -24,6 +24,26 @@ function readJournalRecords(journalPath: string): Array<Record<string, unknown>>
     .filter(line => line.trim())
     .map(line => JSON.parse(line) as Record<string, unknown>);
 }
+
+test('atomic data writes enforce private directory and file modes independently of process umask', (t) => {
+  const fixtureDir = mkdtempSync(join(tmpdir(), 'doccanvas-atomic-write-'));
+  const nestedDir = join(fixtureDir, 'nested');
+  const filePath = join(nestedDir, 'record.json');
+  t.after(() => rmSync(fixtureDir, { recursive: true, force: true }));
+
+  const previousUmask = process.umask(0);
+  try {
+    atomicWriteJson(filePath, { ok: true });
+    atomicWriteText(filePath, 'updated\n');
+  } finally {
+    process.umask(previousUmask);
+  }
+
+  assert.equal(statSync(nestedDir).mode & 0o777, 0o750);
+  assert.equal(statSync(filePath).mode & 0o777, 0o640);
+  assert.equal(readFileSync(filePath, 'utf-8'), 'updated\n');
+  assert.deepEqual(fs.readdirSync(nestedDir), ['record.json']);
+});
 
 test('writes pid and numeric createdAt metadata while holding a lock', async (t) => {
   const lockPath = createFixture(t);

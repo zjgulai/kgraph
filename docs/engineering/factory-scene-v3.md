@@ -59,6 +59,7 @@ Owner UI 只在服务端确认 HttpOnly 会话后渲染。mutation 使用 revisi
 - 跨层主流程若每层都按同一方向排列，会在层尾到下一层层首形成整层 U 形折返；楼层按业务顺序蛇形排列，跨层 flow 进入短竖向 riser，治理关系使用独立源端竖向主干和单一目标接入段。
 - section body 若没有尾换行，直接拼接下一 heading 会让 Markdown 解析器吞并后续模块；replacement 在非空 suffix 前必须补用源文档行尾风格。mutation 与 restore 的精确重放以 canonical request hash、当前 revision/hash 和最新 audit entry 三者一致为前提返回原结果，其他 stale request 仍返回冲突。
 - 双层 Nginx 中 edge 不得把 shared proxy 已确认的 public `X-Forwarded-Proto` 覆盖成内部 HTTP `$scheme`；shared 负责覆盖外部输入，edge 透传，应用继续对 protocol/Host 做 fail-closed 校验。
+- Node 默认 `umask 0022` 会让未指定 mode 的原子临时文件落成 `0644`；`atomicWriteText()` 必须显式创建 `0750` 父目录和 `0640` 临时文件，再执行 rename。unit、mutation 集成测试与 Owner image smoke 都必须检查实际 mode，不能只依赖部署前一次性 `chmod`。
 
 ## 验证门
 

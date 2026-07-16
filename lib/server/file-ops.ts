@@ -507,9 +507,9 @@ export async function withFileLock<T>(
 }
 
 export function atomicWriteText(filePath: string, content: string) {
-  fs.mkdirSync(dirname(filePath), { recursive: true });
+  fs.mkdirSync(dirname(filePath), { recursive: true, mode: 0o750 });
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tempPath, content, 'utf-8');
+  fs.writeFileSync(tempPath, content, { encoding: 'utf-8', mode: 0o640 });
   fs.renameSync(tempPath, filePath);
 }
 

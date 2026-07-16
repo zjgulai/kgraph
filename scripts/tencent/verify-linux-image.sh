@@ -4,6 +4,13 @@ set -Eeuo pipefail
 umask 077
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
+file_mode() {
+  if [[ "$(uname -s)" == Darwin ]]; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
 [[ $# -eq 1 ]] || fail "usage: $0 <image-tag>"
 IMAGE_TAG="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -153,6 +160,11 @@ if (logout.status !== 200) throw new Error(`owner logout failed: ${logout.status
 NODE
 
 [[ -s "$FIXTURE_ROOT/documents/user/owner-image-fixture.md" ]] || fail "owner image smoke did not persist the user canvas"
+[[ "$(file_mode "$FIXTURE_ROOT/documents/user/owner-image-fixture.md")" == 640 ]] \
+  || fail "Owner-created Markdown mode is not 0640"
+[[ -s "$FIXTURE_ROOT/data/canvases/manifest.json" ]] || fail "owner image smoke did not persist the canvas manifest"
+[[ "$(file_mode "$FIXTURE_ROOT/data/canvases/manifest.json")" == 640 ]] \
+  || fail "Owner-created canvas manifest mode is not 0640"
 
 [[ "$(docker inspect --format '{{.RestartCount}}' "$CONTAINER_NAME")" == "0" ]] || fail "container restarted"
 [[ "$(docker inspect --format '{{.State.OOMKilled}}' "$CONTAINER_NAME")" == "false" ]] || fail "container was OOM killed"
