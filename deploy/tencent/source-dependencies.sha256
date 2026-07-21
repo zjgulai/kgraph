@@ -1,0 +1,7 @@
+6786b2bef520ae889e85583ab4d9835687bf7e0d727d195be64de44200e3e3e5  ../product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json
+60b03d33876c2f29c80f35d8f3627f38f05adc67c75dc9504daea517f8d774d2  ../product/blueprint-fixtures/valid-approved-blueprint.yaml
+8caebce94106473716d3adfe3688c8130b47050ad0081a8504b8daa7c2dda130  ../scripts/lib/knowledge-object-contract.ts
+a1eb17c4055b7adfc483a95a9f8552e30e988fd41152605f243efa2d8df4800d  ../scripts/lib/knowledge-object-store.ts
+04d898b428ff70c2b52059cc4aec2549880dc21ed1867c5c0b01ecad21e48092  ../scripts/lib/blueprint-contract.ts
+26628cffe632268768fd5111d72f94befd48c71b096f74f11b1bc522b7a0114b  ../scripts/lib/blueprint-store.ts
+54612016860c8e1a0f8d945fb1d358c418e47059ecc6e1e43d56da045601e282  ../scripts/validate-genome.ts

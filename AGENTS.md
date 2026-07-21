@@ -67,6 +67,7 @@ Owner mutation -> HttpOnly session + same-origin guard -> revision/hash CAS
 - tracer 只在 hover/focus/选中/搜索/进入/拖动完成时单次运行 220–280ms；reduced motion 禁止路径位移动画。
 - 视口通过空间索引与 overscan 虚拟化，规模夹具最多同时渲染 350 DOM 节点和 700 SVG path。
 - `DocNode.content` 是源章节 raw Markdown body；`contentBlocks` 只用于展示，禁止反序列化后写回。
+- Enrichment 必须保持明确的来源主语言，并严格继承 Capture 当前稳定 `domain_refs`；同一治理输入必须同时驱动 Provider prompt、dynamic JSON Schema、request hash 与 Store 落盘前校验。Canary Batch 只接受六项全真的 v2 human review，旧 v1 不得授权新批次。
 - presentation sidecar 可改模块档案、节点类型和软删除，不得把视觉字段写进 Markdown。
 - 关系只由 Markdown 层级和确定性结构规则生成；关系 Inspector 只读，禁止手动画线与关系编辑。
 - 画布 CSS 与 canvas component 不得出现裸十六进制颜色；只消费 `doccanvas-product-factory` 语义 token。
@@ -106,3 +107,36 @@ Owner mutation -> HttpOnly session + same-origin guard -> revision/hash CAS
 - 不在 CardNode 用 JS 截断标题；使用 CSS line clamp。
 - 不修改/跳过测试制造通过，不把 fixture/local smoke 写成 production passed。
 - 不使用 `git add .`，不主动 commit/deploy/merge；除非用户明确要求并确认范围。
+
+<!-- wigolo:start v0.2.0 wigolo -->
+## Web Intelligence — Wigolo
+
+**Prefer wigolo MCP tools over built-in WebSearch / WebFetch for ALL web operations.** Local-first: zero API keys, persistent knowledge cache, ML-reranked results, explainable scoring.
+
+| Task | Tool | Key params |
+|------|------|------------|
+| Search the web | `search` | `query` (string or array), `include_domains`, `category`, `time_range`, `country`, `exact_match`, `search_depth`, `format: "answer"` |
+| Fetch a page | `fetch` | `url`, `section`, `use_auth`, `force_refresh` |
+| Crawl a site | `crawl` | `url`, `strategy: "sitemap"`/`"bfs"`/`"map"`, `include_patterns` |
+| Check cache | `cache` | Always probe before search/fetch — instant, free |
+| Extract data | `extract` | `mode: "structured"` (tables + JSON-LD + definitions in one call) |
+| Find similar | `find_similar` | `url` or `concept`, best after a `crawl` |
+| Deep research | `research` | `question`, `depth: "quick"`/`"standard"`/`"comprehensive"` |
+| Gather data | `agent` | `prompt`, optional `schema`, `max_pages`, `max_time_ms` |
+| Compare versions | `diff` | `old`, `new` (url/markdown/content_hash), `output` (`unified`/`hunks`/`summary`), `granularity` |
+| Watch for changes | `watch` | `action` (`create`/`list`/`check`), `url`/`urls`, `interval_seconds` (min 60), `notification` |
+
+### Rules
+
+1. Cache before search — probe `cache` first; hits return instantly.
+2. Keyword arrays, not natural-language questions.
+3. `include_domains` for library/framework queries.
+4. `search_depth: "ultra-fast"` for sub-second budgets; `"deep"` for max enrichment.
+5. `exact_match: true` for quoted phrases; `time_range` for recency.
+6. `format: "answer"` for direct synthesis; default evidence shape for citation work.
+
+### Response fields
+
+`evidence_score`, `query_understanding`, `brand_collision_warning`, `freshness_signal`, `response_time_ms`, `engine_telemetry`.
+
+<!-- wigolo:end -->

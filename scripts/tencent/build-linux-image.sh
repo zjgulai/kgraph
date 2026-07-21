@@ -19,6 +19,19 @@ RUNTIME_IMAGE="${RUNTIME_IMAGE:-gcr.io/distroless/nodejs22-debian13@sha256:773a6
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 DOCCANVAS_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+SOURCE_DEPENDENCY_LOCK="$DOCCANVAS_ROOT/deploy/tencent/source-dependencies.sha256"
+[[ -f "$SOURCE_DEPENDENCY_LOCK" ]] || fail "source dependency lock is missing: $SOURCE_DEPENDENCY_LOCK"
+(cd "$DOCCANVAS_ROOT" && shasum -a 256 -c deploy/tencent/source-dependencies.sha256 >/dev/null) || fail "external release source does not match source-dependencies.sha256"
+SOURCE_DEPENDENCY_LOCK_SHA="$(shasum -a 256 "$SOURCE_DEPENDENCY_LOCK" | awk '{print $1}')"
+KNOWLEDGE_PACK_SOURCE="$DOCCANVAS_ROOT/../product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json"
+[[ -f "$KNOWLEDGE_PACK_SOURCE" ]] || fail "knowledge candidate pack is missing: $KNOWLEDGE_PACK_SOURCE"
+BLUEPRINT_FIXTURE_SOURCE="$DOCCANVAS_ROOT/../product/blueprint-fixtures/valid-approved-blueprint.yaml"
+[[ -f "$BLUEPRINT_FIXTURE_SOURCE" ]] || fail "approved Blueprint fixture is missing: $BLUEPRINT_FIXTURE_SOURCE"
+KNOWLEDGE_RUNTIME_SOURCE="$DOCCANVAS_ROOT/../scripts/lib"
+for file in knowledge-object-contract.ts knowledge-object-store.ts blueprint-contract.ts blueprint-store.ts; do
+  [[ -f "$KNOWLEDGE_RUNTIME_SOURCE/$file" ]] || fail "knowledge runtime source is missing: $file"
+done
+[[ -f "$DOCCANVAS_ROOT/../scripts/validate-genome.ts" ]] || fail "Genome validator source is missing"
 GIT_COMMIT_SHA="$(git -C "$DOCCANVAS_ROOT" rev-parse HEAD)"
 RELEASE_COMMIT_PREFIX="${RELEASE_ID##*-}"
 [[ "$GIT_COMMIT_SHA" == "$RELEASE_COMMIT_PREFIX"* ]] || fail "release id does not match HEAD"
@@ -47,6 +60,15 @@ done
 for dir in app components lib opendesign public documents scripts tests deploy; do
   cp -R "$DOCCANVAS_ROOT/$dir" "$CONTEXT_DIR/doccanvas/$dir"
 done
+mkdir -p "$CONTEXT_DIR/product/knowledge-object-fixtures"
+cp "$KNOWLEDGE_PACK_SOURCE" "$CONTEXT_DIR/product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json"
+mkdir -p "$CONTEXT_DIR/product/blueprint-fixtures"
+cp "$BLUEPRINT_FIXTURE_SOURCE" "$CONTEXT_DIR/product/blueprint-fixtures/valid-approved-blueprint.yaml"
+mkdir -p "$CONTEXT_DIR/scripts/lib"
+for file in knowledge-object-contract.ts knowledge-object-store.ts blueprint-contract.ts blueprint-store.ts; do
+  cp "$KNOWLEDGE_RUNTIME_SOURCE/$file" "$CONTEXT_DIR/scripts/lib/$file"
+done
+cp "$DOCCANVAS_ROOT/../scripts/validate-genome.ts" "$CONTEXT_DIR/scripts/validate-genome.ts"
 
 if find "$CONTEXT_DIR" -type f \( -name '*.pem' -o -name '*.key' -o -name '*.p12' -o -name '*.pfx' -o -name '.env' -o -name '.env.*' \) -print | grep -q .; then
   fail "sensitive filename found in allowlist context"
@@ -128,6 +150,7 @@ ARCHIVE_SHA="$(shasum -a 256 "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz" | awk '{prin
   echo "buildx_builder=$BUILDX_BUILDER"
   echo "platform=$PLATFORM"
   echo "source_sha256=$SOURCE_SHA"
+  echo "source_dependency_lock_sha256=$SOURCE_DEPENDENCY_LOCK_SHA"
   echo "archive_sha256=$ARCHIVE_SHA"
   echo "node_image=$NODE_IMAGE"
   echo "runtime_image=$RUNTIME_IMAGE"

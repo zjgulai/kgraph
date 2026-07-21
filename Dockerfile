@@ -15,6 +15,14 @@ COPY doccanvas/lib ./lib
 COPY doccanvas/opendesign ./opendesign
 COPY doccanvas/public ./public
 COPY doccanvas/documents ./documents
+COPY product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json ./knowledge/shared-knowledge-v1-candidate-pack.json
+COPY product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json /workspace/product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json
+COPY product/blueprint-fixtures/valid-approved-blueprint.yaml /workspace/product/blueprint-fixtures/valid-approved-blueprint.yaml
+COPY scripts/lib/knowledge-object-contract.ts /workspace/scripts/lib/knowledge-object-contract.ts
+COPY scripts/lib/knowledge-object-store.ts /workspace/scripts/lib/knowledge-object-store.ts
+COPY scripts/lib/blueprint-contract.ts /workspace/scripts/lib/blueprint-contract.ts
+COPY scripts/lib/blueprint-store.ts /workspace/scripts/lib/blueprint-store.ts
+COPY scripts/validate-genome.ts /workspace/scripts/validate-genome.ts
 COPY doccanvas/scripts ./scripts
 COPY doccanvas/tests ./tests
 COPY doccanvas/deploy ./deploy
@@ -42,6 +50,7 @@ WORKDIR /app
 COPY --from=builder --chown=10001:10001 /workspace/doccanvas/.next/standalone ./
 COPY --from=builder --chown=10001:10001 /workspace/doccanvas/.next/static ./.next/static
 COPY --from=builder --chown=10001:10001 /workspace/doccanvas/public ./public
+COPY --from=builder --chown=10001:10001 /workspace/doccanvas/knowledge ./knowledge
 COPY --from=builder --chown=10001:10001 /workspace/doccanvas/.next/standalone/.next/BUILD_ID ./public/__doccanvas_build_id.txt
 
 USER 10001:10001

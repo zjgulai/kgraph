@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
@@ -16,6 +17,7 @@ test('Tencent Docker package contains every local preflight artifact', () => {
     'deploy/tencent/release.env.example',
     'deploy/tencent/README.md',
     'deploy/tencent/PRODUCTION-RUNBOOK.md',
+    'deploy/tencent/source-dependencies.sha256',
     'scripts/tencent/build-linux-image.sh',
     'scripts/tencent/prepare-owner-data.sh',
     'scripts/tencent/backup-owner-data.sh',
@@ -39,6 +41,8 @@ test('Docker build is digest-pinned, allowlisted, multi-stage and non-root', () 
   assert.match(dockerfile, /npm run verify:local/);
   assert.match(dockerfile, /COPY doccanvas\/tsconfig\.json[^\n]*doccanvas\/playwright\.config\.ts/);
   assert.match(dockerfile, /COPY doccanvas\/documents \.\/documents/);
+  assert.match(dockerfile, /COPY product\/knowledge-object-fixtures\/shared-knowledge-v1-candidate-pack\.json \.\/knowledge\/shared-knowledge-v1-candidate-pack\.json/);
+  assert.match(dockerfile, /COPY --from=builder[^\n]*\/workspace\/doccanvas\/knowledge \.\/knowledge/);
   assert.match(dockerfile, /COPY doccanvas\/opendesign \.\/opendesign/);
   assert.match(dockerfile, /\.next\/standalone/);
   assert.match(dockerfile, /\.next\/static/);
@@ -163,12 +167,43 @@ test('build script assembles an external allowlist context and requires a digest
   assert.match(script, /sensitive/i);
   assert.match(script, /docker save/);
   assert.match(script, /app components lib opendesign public documents scripts tests deploy/);
+  assert.match(script, /KNOWLEDGE_PACK_SOURCE/);
+  assert.match(script, /source-dependencies\.sha256/);
+  assert.match(script, /shasum -a 256 -c/);
+  assert.match(script, /source_dependency_lock_sha256=/);
+  assert.match(script, /product\/knowledge-object-fixtures\/shared-knowledge-v1-candidate-pack\.json/);
   assert.match(script, /playwright\.config\.ts/);
   assert.doesNotMatch(script, /StrictHostKeyChecking=no|docker\s+(system\s+)?prune/);
 });
 
+test('external release inputs are commit-bound by an exact SHA-256 lock', () => {
+  const lock = read('deploy/tencent/source-dependencies.sha256');
+  const entries = lock.trim().split('\n').map((line) => {
+    const match = line.match(/^([a-f0-9]{64}) {2}(\.\.\/(?:product|scripts)\/[A-Za-z0-9._/-]+)$/u);
+    assert.ok(match, `invalid dependency lock entry: ${line}`);
+    return { expected: match[1], path: match[2] };
+  });
+
+  assert.deepEqual(entries.map(({ path }) => path), [
+    '../product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json',
+    '../product/blueprint-fixtures/valid-approved-blueprint.yaml',
+    '../scripts/lib/knowledge-object-contract.ts',
+    '../scripts/lib/knowledge-object-store.ts',
+    '../scripts/lib/blueprint-contract.ts',
+    '../scripts/lib/blueprint-store.ts',
+    '../scripts/validate-genome.ts',
+  ]);
+
+  for (const { expected, path } of entries) {
+    const actual = createHash('sha256').update(readFileSync(resolve(root, path))).digest('hex');
+    assert.equal(actual, expected, `external release input drifted: ${path}`);
+  }
+});
+
 test('Owner data preparation is missing-only, symlink-safe, and fixes UID 10001 permissions', () => {
   const script = read('scripts/tencent/prepare-owner-data.sh');
+  assert.match(script, /data\/knowledge-candidates/u);
+  assert.match(script, /data\/captures/u);
   assert.match(script, /EUID[\s\S]*-eq 0/);
   assert.match(script, /documents\/user/);
   assert.match(script, /data\/presentation/);

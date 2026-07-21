@@ -23,6 +23,7 @@ import { OwnerSessionControl } from '@/components/canvas/OwnerSessionControl';
 interface Props {
   initialEntries: DocumentEntry[];
   writePolicy: WritePolicy;
+  embedded?: boolean;
 }
 
 const iconByKind = {
@@ -30,7 +31,7 @@ const iconByKind = {
   user: FolderKanban,
 };
 
-export function WorkspaceDashboard({ initialEntries, writePolicy }: Props) {
+export function WorkspaceDashboard({ initialEntries, writePolicy, embedded = false }: Props) {
   const [entries, setEntries] = useState(initialEntries);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -84,8 +85,10 @@ export function WorkspaceDashboard({ initialEntries, writePolicy }: Props) {
     }
   };
 
+  const Root = embedded ? 'section' : 'main';
+
   return (
-    <main className="workspace-lobby">
+    <Root className={`workspace-lobby${embedded ? ' workspace-lobby--embedded' : ''}`}>
       <section className="workspace-lobby__frame">
         <header className="workspace-lobby__header">
           <div className="workspace-lobby__title">
@@ -231,6 +234,6 @@ export function WorkspaceDashboard({ initialEntries, writePolicy }: Props) {
           )}
         </section>
       </section>
-    </main>
+    </Root>
   );
 }

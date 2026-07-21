@@ -27,8 +27,8 @@ production_status: last_verified_readonly_release_requires_fresh_recheck
 
 远端写入前必须同时固定并向 Owner 展示：
 
-1. 已推送的 clean Git commit SHA；工作树构建不得作为发布来源。
-2. `linux/amd64` immutable image tag、image ID、manifest digest、runtime config digest 和 archive SHA-256。
+1. 已推送的 clean Git commit SHA；工作树构建不得作为发布来源；commit 内的 `source-dependencies.sha256` 必须与七个父目录共享运行输入逐项一致。
+2. `linux/amd64` immutable image tag、image ID、manifest digest、runtime config digest、build-context `source_sha256`、`source_dependency_lock_sha256` 和 archive SHA-256。
 3. 本地 unit/typecheck/build/Playwright、Owner image smoke、Compose config、dependency/security gate 的新鲜结果。
 4. 生产只读盘点：当前 app/edge image 与 ID、Compose config checksum、data tree、磁盘/内存、共享 Nginx、TLS、其他容器 sentinel。
 5. Owner 写入停止后的数据 snapshot archive SHA-256 与 manifest SHA-256。
@@ -43,7 +43,7 @@ production_status: last_verified_readonly_release_requires_fresh_recheck
 | 顺序 | 阶段 | 动作 | 完成标准 |
 |---|---|---|---|
 | 1 | 本地收口 | `npm ci`、unit、typecheck、production build、Chromium/WebKit/移动端、视觉快照、CRUD、安全负例、1000/2000 性能夹具 | 全部新鲜通过；失败不得制作 release |
-| 2 | 候选制作 | 从 clean commit 且显式指定 `BUILDX_BUILDER` 运行 `build-linux-image.sh`，再运行 Owner `verify-linux-image.sh` | immutable amd64 image 与 checksum 证据齐全；builder 身份进入 manifest；未登录 401、跨站 403、Owner 登录与真实写入通过 |
+| 2 | 候选制作 | 先验证 `source-dependencies.sha256`，再从 clean commit 且显式指定 `BUILDX_BUILDER` 运行 `build-linux-image.sh`，最后运行 Owner `verify-linux-image.sh` | 七个共享输入无漂移；immutable amd64 image 与 checksum 证据齐全；builder 与 dependency-lock 身份进入 manifest；未登录 401、跨站 403、Owner 登录与真实写入通过 |
 | 3 | 生产只读再熟悉 | 使用可信 fingerprint 和 isolated `known_hosts` 检查主机、Docker、Compose、Nginx、TLS、data、资源和其他容器 | 形成 L3 基线；发现漂移即重新规划 |
 | 4 | 写入静默与快照 | 停止 DocCanvas app 接收写入，确认无 transaction journal 活动；运行 `backup-owner-data.sh` | archive 可解包，archive/manifest checksum 固定，其他项目不变 |
 | 5 | Owner data 预检 | 运行 `prepare-owner-data.sh`，校验 missing-only seed、UID 10001、目录权限、secret file 和 Compose config | 既有文档 checksum 不变；新增目录可写；无 symlink/path traversal |

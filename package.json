@@ -12,6 +12,8 @@
     "test:e2e:update": "npm run build && playwright test --update-snapshots",
     "test:e2e:prepare": "tsx scripts/prepare-standalone-e2e.ts",
     "test:e2e:serve": "npm run test:e2e:prepare && node .next/standalone/server.js",
+    "pilot:unlock-pack": "tsx scripts/enrichment-pilot-unlock-pack.ts",
+    "pilot:authorization-request": "tsx scripts/enrichment-pilot-authorization-request.ts",
     "typecheck": "tsc --noEmit --pretty false",
     "verify:local": "npm run typecheck && npm test && npm run build"
   },

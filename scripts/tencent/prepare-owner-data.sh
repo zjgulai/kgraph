@@ -25,6 +25,8 @@ install -d -o 10001 -g 10001 -m 0750 \
   "$DATA_ROOT/data/canvas-states" \
   "$DATA_ROOT/data/evolution-audit" \
   "$DATA_ROOT/data/presentation" \
+  "$DATA_ROOT/data/knowledge-candidates" \
+  "$DATA_ROOT/data/captures" \
   "$DATA_ROOT/data/revisions" \
   "$DATA_ROOT/data/transactions" \
   "$DATA_ROOT/data/revision-audit" \

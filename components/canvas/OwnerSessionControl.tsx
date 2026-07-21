@@ -166,10 +166,22 @@ export function OwnerSessionControl({ writePolicy, onAuthenticatedChange }: Prop
             <button type="button" onClick={closeDialog} aria-label="关闭 Owner 登录"><X aria-hidden="true" /></button>
           </header>
           <p>凭证仅提交给当前站点；登录成功后由 HttpOnly cookie 维持会话，页面脚本无法读取。</p>
+          <label className="sr-only" htmlFor="owner-session-username">Owner username</label>
+          <input
+            className="sr-only"
+            id="owner-session-username"
+            name="username"
+            type="text"
+            value="owner"
+            autoComplete="username"
+            tabIndex={-1}
+            readOnly
+          />
           <label htmlFor="owner-session-token">Owner token</label>
           <input
             ref={tokenRef}
             id="owner-session-token"
+            name="password"
             type="password"
             value={token}
             onChange={event => setToken(event.target.value)}

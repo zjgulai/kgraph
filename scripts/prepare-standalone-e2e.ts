@@ -1,5 +1,5 @@
-import { cpSync, existsSync, rmSync } from 'fs';
-import { resolve } from 'path';
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from 'fs';
+import { dirname, resolve } from 'path';
 
 const root = process.cwd();
 const standalone = resolve(root, '.next/standalone');
@@ -14,5 +14,11 @@ for (const [source, destination] of [
   rmSync(destination, { recursive: true, force: true });
   cpSync(source, destination, { recursive: true });
 }
+
+const knowledgeSource = resolve(root, '../product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json');
+const knowledgeDestination = resolve(standalone, 'knowledge/shared-knowledge-v1-candidate-pack.json');
+if (!existsSync(knowledgeSource)) throw new Error(`Knowledge candidate pack is missing: ${knowledgeSource}`);
+mkdirSync(dirname(knowledgeDestination), { recursive: true });
+copyFileSync(knowledgeSource, knowledgeDestination);
 
 console.log('standalone_e2e_assets_ready=true');

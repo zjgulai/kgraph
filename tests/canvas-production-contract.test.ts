@@ -101,4 +101,6 @@ test('Playwright serves the actual standalone output with copied static and publ
   assert.match(prepare, /\.next\/standalone/);
   assert.match(prepare, /\.next\/static/);
   assert.match(prepare, /public/);
+  assert.match(prepare, /shared-knowledge-v1-candidate-pack\.json/);
+  assert.match(prepare, /standalone, 'knowledge\/shared-knowledge-v1-candidate-pack\.json'/);
 });

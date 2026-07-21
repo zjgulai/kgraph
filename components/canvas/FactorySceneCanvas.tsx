@@ -1,6 +1,6 @@
 'use client';
 
-import {
+import React, {
   forwardRef,
   useCallback,
   useEffect,
@@ -50,6 +50,9 @@ interface Props {
   onViewportChange?: (viewport: FactoryViewport) => void;
   renderAll?: boolean;
   autoFitOnMount?: boolean;
+  ariaLabel?: string;
+  relationAriaLabel?: string;
+  fitControlLabel?: string;
 }
 
 interface DragState {
@@ -186,6 +189,9 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
   onViewportChange,
   renderAll = false,
   autoFitOnMount = true,
+  ariaLabel = '产品工厂关系画布',
+  relationAriaLabel = '生产关系',
+  fitControlLabel = '适应建筑',
 }, forwardedRef) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<HTMLDivElement>(null);
@@ -575,7 +581,7 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
       data-rendered-edges={visibleEdges.length}
       tabIndex={0}
       role="region"
-      aria-label="产品工厂关系画布"
+      aria-label={ariaLabel}
       onPointerDown={handlePanStart}
       onPointerMove={handlePanMove}
       onPointerUp={finishPan}
@@ -600,7 +606,7 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
           height={scene.bounds.height}
           viewBox={`${scene.bounds.x} ${scene.bounds.y} ${scene.bounds.width} ${scene.bounds.height}`}
           overflow="visible"
-          aria-label={`${scene.edges.length} 条生产关系`}
+          aria-label={`${scene.edges.length} 条${relationAriaLabel}`}
         >
           <defs>
             {(['flow', 'dependency', 'governance', 'resource'] as const).map(kind => {
@@ -792,7 +798,7 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
 
       <nav className="factory-scene-controls" aria-label="画布缩放">
         <button type="button" onClick={() => applyViewport({ ...viewportRef.current, zoom: viewportRef.current.zoom / 1.15 }, true)} aria-label="缩小画布"><Minus aria-hidden="true" /></button>
-        <button type="button" onClick={() => fit(true)} aria-label="适应建筑"><Scan aria-hidden="true" /></button>
+        <button type="button" onClick={() => fit(true)} aria-label={fitControlLabel}><Scan aria-hidden="true" /></button>
         <button type="button" onClick={() => applyViewport({ ...viewportRef.current, zoom: viewportRef.current.zoom * 1.15 }, true)} aria-label="放大画布"><Plus aria-hidden="true" /></button>
       </nav>
 
