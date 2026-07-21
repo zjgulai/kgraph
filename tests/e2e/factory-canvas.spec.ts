@@ -174,6 +174,35 @@ async function waitForDocumentScene(page: Page, documentId: string) {
   return canvas;
 }
 
+test('production standalone serves HSTS and CSP without breaking the canvas runtime', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'chromium-mobile', 'Response header acceptance runs on both desktop engines.');
+  const cspViolations: string[] = [];
+  const nextAssetFailures: string[] = [];
+  page.on('console', message => {
+    const text = message.text();
+    if (/content security policy|violates the following directive|refused to (?:load|execute|apply|connect|create)/iu.test(text)) {
+      cspViolations.push(text);
+    }
+  });
+  page.on('requestfailed', request => {
+    if (request.url().includes('/_next/')) nextAssetFailures.push(request.url());
+  });
+
+  const response = await page.goto('/canvas/playbook-v2');
+  expect(response).not.toBeNull();
+  expect(response!.headers()['strict-transport-security']).toBe('max-age=31536000');
+  const csp = response!.headers()['content-security-policy'];
+  expect(csp).toContain("default-src 'self'");
+  expect(csp).toContain("script-src 'self' 'unsafe-inline'");
+  expect(csp).not.toContain("'unsafe-eval'");
+  expect(csp).toContain("worker-src 'self' blob:");
+  expect(csp).toContain("frame-ancestors 'none'");
+  await expect(page.locator('.factory-scene-canvas')).toBeVisible();
+  await expect(page.locator('.factory-scene-node')).not.toHaveCount(0);
+  expect(nextAssetFailures).toEqual([]);
+  expect(cspViolations).toEqual([]);
+});
+
 test('all builtin documents keep layout, routed scene, and rendered SVG relation counts aligned', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'chromium-mobile', 'Desktop SVG contract is replaced by the mobile process rail.');
   for (const documentId of ['vibe-track', 'v2-pro', 'playbook-v2']) {
