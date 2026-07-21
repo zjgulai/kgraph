@@ -27,6 +27,9 @@ KNOWLEDGE_PACK_SOURCE="$DOCCANVAS_ROOT/../product/knowledge-object-fixtures/shar
 [[ -f "$KNOWLEDGE_PACK_SOURCE" ]] || fail "knowledge candidate pack is missing: $KNOWLEDGE_PACK_SOURCE"
 BLUEPRINT_FIXTURE_SOURCE="$DOCCANVAS_ROOT/../product/blueprint-fixtures/valid-approved-blueprint.yaml"
 [[ -f "$BLUEPRINT_FIXTURE_SOURCE" ]] || fail "approved Blueprint fixture is missing: $BLUEPRINT_FIXTURE_SOURCE"
+SCRIPTS_PACKAGE_SOURCE="$DOCCANVAS_ROOT/../scripts"
+[[ -f "$SCRIPTS_PACKAGE_SOURCE/package.json" ]] || fail "scripts package manifest is missing"
+[[ -f "$SCRIPTS_PACKAGE_SOURCE/package-lock.json" ]] || fail "scripts package lock is missing"
 KNOWLEDGE_RUNTIME_SOURCE="$DOCCANVAS_ROOT/../scripts/lib"
 for file in knowledge-object-contract.ts knowledge-object-store.ts blueprint-contract.ts blueprint-store.ts; do
   [[ -f "$KNOWLEDGE_RUNTIME_SOURCE/$file" ]] || fail "knowledge runtime source is missing: $file"
@@ -65,6 +68,8 @@ cp "$KNOWLEDGE_PACK_SOURCE" "$CONTEXT_DIR/product/knowledge-object-fixtures/shar
 mkdir -p "$CONTEXT_DIR/product/blueprint-fixtures"
 cp "$BLUEPRINT_FIXTURE_SOURCE" "$CONTEXT_DIR/product/blueprint-fixtures/valid-approved-blueprint.yaml"
 mkdir -p "$CONTEXT_DIR/scripts/lib"
+cp "$SCRIPTS_PACKAGE_SOURCE/package.json" "$CONTEXT_DIR/scripts/package.json"
+cp "$SCRIPTS_PACKAGE_SOURCE/package-lock.json" "$CONTEXT_DIR/scripts/package-lock.json"
 for file in knowledge-object-contract.ts knowledge-object-store.ts blueprint-contract.ts blueprint-store.ts; do
   cp "$KNOWLEDGE_RUNTIME_SOURCE/$file" "$CONTEXT_DIR/scripts/lib/$file"
 done

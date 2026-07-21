@@ -6,6 +6,8 @@ WORKDIR /workspace/doccanvas
 
 COPY doccanvas/package.json doccanvas/package-lock.json ./
 RUN npm ci --include=dev --no-audit --no-fund
+COPY scripts/package.json scripts/package-lock.json /workspace/scripts/
+RUN npm ci --include=dev --no-audit --no-fund --prefix /workspace/scripts
 
 COPY doccanvas/tsconfig.json doccanvas/next.config.ts doccanvas/postcss.config.mjs doccanvas/playwright.config.ts ./
 COPY doccanvas/ecosystem.config.cjs doccanvas/nginx.conf doccanvas/.dockerignore doccanvas/Dockerfile ./

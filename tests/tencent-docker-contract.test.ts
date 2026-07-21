@@ -38,6 +38,8 @@ test('Docker build is digest-pinned, allowlisted, multi-stage and non-root', () 
   assert.match(dockerfile, /FROM \$\{RUNTIME_IMAGE\} AS runtime/);
   assert.doesNotMatch(dockerfile, /COPY\s+\.\s+\./);
   assert.match(dockerfile, /npm ci --include=dev --no-audit --no-fund/);
+  assert.match(dockerfile, /COPY scripts\/package\.json scripts\/package-lock\.json \/workspace\/scripts\//);
+  assert.match(dockerfile, /npm ci --include=dev --no-audit --no-fund --prefix \/workspace\/scripts/);
   assert.match(dockerfile, /npm run verify:local/);
   assert.match(dockerfile, /COPY doccanvas\/tsconfig\.json[^\n]*doccanvas\/playwright\.config\.ts/);
   assert.match(dockerfile, /COPY doccanvas\/documents \.\/documents/);
@@ -168,6 +170,8 @@ test('build script assembles an external allowlist context and requires a digest
   assert.match(script, /docker save/);
   assert.match(script, /app components lib opendesign public documents scripts tests deploy/);
   assert.match(script, /KNOWLEDGE_PACK_SOURCE/);
+  assert.match(script, /SCRIPTS_PACKAGE_SOURCE/);
+  assert.match(script, /scripts\/package-lock\.json/);
   assert.match(script, /source-dependencies\.sha256/);
   assert.match(script, /shasum -a 256 -c/);
   assert.match(script, /source_dependency_lock_sha256=/);
@@ -187,6 +191,8 @@ test('external release inputs are commit-bound by an exact SHA-256 lock', () => 
   assert.deepEqual(entries.map(({ path }) => path), [
     '../product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json',
     '../product/blueprint-fixtures/valid-approved-blueprint.yaml',
+    '../scripts/package.json',
+    '../scripts/package-lock.json',
     '../scripts/lib/knowledge-object-contract.ts',
     '../scripts/lib/knowledge-object-store.ts',
     '../scripts/lib/blueprint-contract.ts',
