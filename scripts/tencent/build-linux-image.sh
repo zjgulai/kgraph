@@ -13,6 +13,8 @@ OUTPUT_DIR="$2"
 BUILDX_BUILDER="${BUILDX_BUILDER:-}"
 [[ "$BUILDX_BUILDER" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || fail "BUILDX_BUILDER must name an existing explicit builder"
 docker buildx inspect "$BUILDX_BUILDER" >/dev/null 2>&1 || fail "BUILDX_BUILDER does not exist: $BUILDX_BUILDER"
+BUILDX_VERSION="$(docker buildx version | awk 'NR == 1 { print $2 }')"
+[[ "$BUILDX_VERSION" =~ ^v[0-9A-Za-z][0-9A-Za-z.+-]*$ ]] || fail "unable to determine Docker Buildx version"
 RUNTIME_IMAGE="${RUNTIME_IMAGE:-gcr.io/distroless/nodejs22-debian13@sha256:773a62fbe24a3f8c8b24b16fd59154627f8b406737bc906f83bf1732bc8907dd}"
 [[ "$RUNTIME_IMAGE" =~ ^gcr\.io/distroless/nodejs22-debian13@sha256:[a-f0-9]{64}$ ]] || fail "RUNTIME_IMAGE must be a digest-pinned distroless Node 22 image"
 [[ ! -e "$OUTPUT_DIR" ]] || fail "output directory already exists: $OUTPUT_DIR"
@@ -107,12 +109,14 @@ MANIFEST_DIGEST="$(node -e '
   if (!/^sha256:[a-f0-9]{64}$/.test(digest ?? "")) process.exit(1);
   process.stdout.write(digest);
 ' "$STAGING_OUTPUT/build-metadata.json")" || fail "build metadata is missing the manifest digest"
-RUNTIME_CONFIG_DIGEST="$(node -e '
+METADATA_CONFIG_DIGEST="$(node -e '
   const metadata = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-  const digest = metadata["containerimage.config.digest"];
-  if (!/^sha256:[a-f0-9]{64}$/.test(digest ?? "")) process.exit(1);
+  const digest = metadata["containerimage.config.digest"]
+    ?? metadata["containerimage.descriptor"]?.annotations?.["config.digest"]
+    ?? "";
+  if (digest !== "" && !/^sha256:[a-f0-9]{64}$/.test(digest)) process.exit(1);
   process.stdout.write(digest);
-' "$STAGING_OUTPUT/build-metadata.json")" || fail "build metadata is missing the runtime config digest"
+' "$STAGING_OUTPUT/build-metadata.json")" || fail "build metadata contains an invalid runtime config digest"
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")"
 [[ "$IMAGE_ID" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "loaded image ID is invalid"
 if ! docker image inspect --format '{{json .RepoDigests}}' "$IMAGE_TAG" | node -e '
@@ -141,8 +145,17 @@ ARCHIVE_CONFIG_PATH="$(gzip -dc "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz" | tar -xO
     process.stdout.write(entry.Config);
   });
 ' "$IMAGE_TAG")" || fail "archive manifest does not identify one config blob"
+ARCHIVE_CONFIG_PATH_DIGEST="sha256:${ARCHIVE_CONFIG_PATH##*/}"
 ARCHIVE_CONFIG_DIGEST="sha256:$(gzip -dc "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz" | tar -xOf - "$ARCHIVE_CONFIG_PATH" | shasum -a 256 | awk '{print $1}')"
-[[ "$ARCHIVE_CONFIG_DIGEST" == "$RUNTIME_CONFIG_DIGEST" ]] || fail "archive config digest does not match build metadata"
+[[ "$ARCHIVE_CONFIG_DIGEST" == "$ARCHIVE_CONFIG_PATH_DIGEST" ]] || fail "archive config blob digest does not match archive config path"
+if [[ -n "$METADATA_CONFIG_DIGEST" ]]; then
+  [[ "$ARCHIVE_CONFIG_DIGEST" == "$METADATA_CONFIG_DIGEST" ]] || fail "archive config digest does not match build metadata"
+  RUNTIME_CONFIG_DIGEST="$METADATA_CONFIG_DIGEST"
+  RUNTIME_CONFIG_DIGEST_SOURCE="build-metadata"
+else
+  RUNTIME_CONFIG_DIGEST="$ARCHIVE_CONFIG_DIGEST"
+  RUNTIME_CONFIG_DIGEST_SOURCE="archive-config-blob"
+fi
 ARCHIVE_SHA="$(shasum -a 256 "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz" | awk '{print $1}')"
 {
   echo "release_id=$RELEASE_ID"
@@ -151,8 +164,10 @@ ARCHIVE_SHA="$(shasum -a 256 "$STAGING_OUTPUT/${RELEASE_ID}.tar.gz" | awk '{prin
   echo "image_id=$IMAGE_ID"
   echo "manifest_digest=$MANIFEST_DIGEST"
   echo "runtime_config_digest=$RUNTIME_CONFIG_DIGEST"
+  echo "runtime_config_digest_source=$RUNTIME_CONFIG_DIGEST_SOURCE"
   echo "archive_config_digest=$ARCHIVE_CONFIG_DIGEST"
   echo "buildx_builder=$BUILDX_BUILDER"
+  echo "buildx_version=$BUILDX_VERSION"
   echo "platform=$PLATFORM"
   echo "source_sha256=$SOURCE_SHA"
   echo "source_dependency_lock_sha256=$SOURCE_DEPENDENCY_LOCK_SHA"
