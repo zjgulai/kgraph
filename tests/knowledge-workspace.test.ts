@@ -11,6 +11,7 @@ import {
 } from '../lib/server/knowledge-library';
 import type { DocumentEntry } from '../lib/shared/document-registry';
 import { buildProductOperationsProjection } from '../lib/product/operations-projection';
+import { parseWorkbenchRoute } from '../lib/workbench/routes';
 
 const root = resolve(import.meta.dirname, '..');
 const packPath = resolve(root, '../product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json');
@@ -68,18 +69,19 @@ test('workspace renders the library, inspector and legacy Documents entry withou
     initialOperations: buildProductOperationsProjection({ library, blueprints: [], artifacts: [] }),
     initialEntries: entries,
     initialCaptures: [],
+    initialRoute: parseWorkbenchRoute(new URLSearchParams('view=knowledge')),
     writePolicy: { mode: 'readonly', writable: false, tokenRequired: false },
   }));
 
-  assert.match(html, /Knowledge Product Workspace/);
+  assert.match(html, /Evidence Workbench/);
   assert.match(html, /知识资产库/);
   assert.match(html, /37/);
   assert.match(html, /Context7/);
   assert.match(html, /人工复核/);
-  assert.match(html, /Documents/);
+  assert.match(html, />文档</u);
   assert.match(html, /aria-label="搜索知识对象"/u);
   assert.match(html, /来源与时态/);
-  assert.match(html, /role="listitem" class="knowledge-row-item"><button/u);
+  assert.match(html, /role="listitem" class="knowledge-row-item"><a/u);
   assert.doesNotMatch(html, /创建并打开|<form|sessionStorage|X-DocCanvas-Token/u);
 });
 
@@ -88,6 +90,8 @@ test('workspace stays separate from CanvasViewer and packages the candidate snap
   const library = readFileSync(resolve(root, 'components/workspace/KnowledgeLibrary.tsx'), 'utf8');
   const inspector = readFileSync(resolve(root, 'components/workspace/KnowledgeInspector.tsx'), 'utf8');
   const css = readFileSync(resolve(root, 'app/globals.css'), 'utf8');
+  const workbenchShell = readFileSync(resolve(root, 'components/workbench/WorkbenchShell.tsx'), 'utf8');
+  const workbenchCss = readFileSync(resolve(root, 'components/workbench/workbench.css'), 'utf8');
   const dockerfile = readFileSync(resolve(root, 'Dockerfile'), 'utf8');
   const buildScript = readFileSync(resolve(root, 'scripts/tencent/build-linux-image.sh'), 'utf8');
   const standalonePrepare = readFileSync(resolve(root, 'scripts/prepare-standalone-e2e.ts'), 'utf8');
@@ -95,10 +99,15 @@ test('workspace stays separate from CanvasViewer and packages the candidate snap
 
   assert.doesNotMatch(productSource, /CanvasViewer|@xyflow\/react|sessionStorage/u);
   assert.doesNotMatch(productSource, /#[a-fA-F0-9]{3,8}\b/u);
-  assert.match(workspace, /window\.addEventListener\('keydown', focusSearch\)/u);
-  assert.match(workspace, /event\.metaKey && !event\.ctrlKey/u);
-  assert.match(css, /\.knowledge-workspace\s*\{/u);
-  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.knowledge-workspace/u);
+  assert.match(workspace, /window\.addEventListener\('popstate', restoreRoute\)/u);
+  assert.match(workspace, /toKnowledgeObject\(route, item\.objectId, capture\.captureId\)/u);
+  assert.match(workspace, /initialObjectId=\{route\.objectId\}/u);
+  assert.match(inspector, /来源到知识资产/u);
+  assert.match(workbenchShell, /window\.addEventListener\('keydown', openPalette\)/u);
+  assert.match(workbenchShell, /event\.metaKey && !event\.ctrlKey/u);
+  assert.match(css, /components\/workbench\/workbench\.css/u);
+  assert.match(workbenchCss, /\.workbench-shell\s*\{/u);
+  assert.match(workbenchCss, /@media \(max-width: 760px\)[\s\S]*?\.workbench-mobile-domains/u);
   assert.match(dockerfile, /shared-knowledge-v1-candidate-pack\.json/u);
   assert.match(dockerfile, /\/workspace\/product\/knowledge-object-fixtures\/shared-knowledge-v1-candidate-pack\.json/u);
   assert.match(dockerfile, /scripts\/lib\/knowledge-object-contract\.ts/u);

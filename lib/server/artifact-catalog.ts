@@ -36,6 +36,26 @@ const ManifestSchema = z.object({
     errors: z.array(ValidationIssueSchema),
     warnings: z.array(ValidationIssueSchema),
   }).strict(),
+  input: z.object({
+    inputHash: z.string().regex(HASH_PATTERN),
+    productTaskId: z.string().regex(/^task\.[a-zA-Z0-9._-]+$/u),
+    baseKnowledgeRevision: z.string().min(1),
+    evidenceIds: z.array(z.string().min(1)),
+    compilerVersion: z.literal('blueprint-compiler-v1.1'),
+    sourceMap: z.object({
+      productTask: z.literal('product_task'),
+      evidence: z.literal('evidence_matrix'),
+      execution: z.literal('execution.genome'),
+    }).strict(),
+  }).strict().optional(),
+  replay: z.object({
+    status: z.literal('replayable'),
+    requiredInputs: z.tuple([
+      z.literal('blueprintRevision'),
+      z.literal('blueprintDocumentHash'),
+      z.literal('compiledAt'),
+    ]),
+  }).strict().optional(),
   productionStatus: z.literal('unchanged'),
 }).strict();
 

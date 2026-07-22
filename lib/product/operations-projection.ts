@@ -3,6 +3,15 @@ import type { BlueprintArtifactRecord } from '../server/artifact-catalog';
 import type { KnowledgeLibraryProjection } from '../knowledge/library-types';
 import type { BlueprintArtifactManifest } from '../server/blueprint-artifact-store';
 import type { CompiledProductViews } from './compiled-views';
+import { buildProductChains, type ProductChainProjection } from './product-chain';
+import {
+  buildEvidenceRegistry,
+  type EvidenceKind,
+  type EvidenceRegistryProjection,
+  type ProviderOperationsProjection,
+  type ProviderProjectionInput,
+  type RegistryReadinessClaim,
+} from './evidence-registry';
 
 export type WorkflowState = 'complete' | 'active' | 'blocked' | 'empty';
 export type EvolutionReadiness = 'ready' | 'blocked' | 'not_measured';
@@ -23,15 +32,21 @@ export interface ProductOperationsProjection {
     artifactCount: number;
   };
   artifacts: ProductOperationsArtifact[];
+  productChains: ProductChainProjection[];
+  evidenceRegistry: EvidenceRegistryProjection;
+  providerOps: ProviderOperationsProjection;
   workflow: Array<{
     id: 'capture' | 'review' | 'blueprint' | 'artifact' | 'evaluation' | 'evolution' | 'production';
     label: string;
     state: WorkflowState;
     evidenceCount: number;
     evidence: string;
+    evidenceIds: string[];
+    freshness: RegistryReadinessClaim['freshness'];
     humanGate: string | null;
   }>;
   timeline: {
+    events: TimelineEvent[];
     valid: { label: 'valid time'; unknownCount: number; events: TimelineEvent[] };
     observed: { label: 'observed time'; events: TimelineEvent[] };
     governance: { label: 'governance time'; events: TimelineEvent[] };
@@ -43,6 +58,8 @@ export interface ProductOperationsProjection {
       label: string;
       status: EvolutionReadiness;
       evidence: string;
+      evidenceIds: string[];
+      freshness: RegistryReadinessClaim['freshness'];
       requiredEvidence: string;
     }>;
     employees: DigitalEmployeeProjection[];
@@ -52,10 +69,13 @@ export interface ProductOperationsProjection {
 
 export interface TimelineEvent {
   id: string;
+  axis: 'valid' | 'observed' | 'governance';
   at: string;
   title: string;
   detail: string;
   sourceRef: string;
+  evidenceId: string;
+  kind: EvidenceKind;
 }
 
 export interface DigitalEmployeeProjection {
@@ -85,108 +105,86 @@ function sortedEvents(events: TimelineEvent[]): TimelineEvent[] {
   return events.sort((left, right) => right.at.localeCompare(left.at) || left.id.localeCompare(right.id));
 }
 
-function workflow(
-  library: KnowledgeLibraryProjection,
-  blueprints: BlueprintCandidateRecord[],
-  artifacts: BlueprintArtifactRecord[],
-): ProductOperationsProjection['workflow'] {
-  const approved = blueprints.filter(record => record.blueprint.status === 'approved').length;
-  return [
-    {
-      id: 'capture', label: 'Knowledge capture', state: library.stats.total > 0 ? 'complete' : 'empty',
-      evidenceCount: library.stats.total, evidence: `${library.stats.total} current candidate objects`, humanGate: null,
-    },
-    {
-      id: 'review', label: 'Evidence review', state: library.stats.reviewRequired > 0 ? 'active' : 'complete',
-      evidenceCount: library.stats.reviewRequired, evidence: `${library.stats.reviewRequired} objects require human review`, humanGate: 'knowledge_review',
-    },
-    {
-      id: 'blueprint', label: 'Product Blueprint', state: approved > 0 ? 'complete' : blueprints.length > 0 ? 'active' : 'empty',
-      evidenceCount: blueprints.length, evidence: `${approved} approved / ${blueprints.length} current Blueprints`, humanGate: 'blueprint_approval',
-    },
-    {
-      id: 'artifact', label: 'Genome artifact', state: artifacts.length > 0 ? 'complete' : blueprints.length > 0 ? 'blocked' : 'empty',
-      evidenceCount: artifacts.length, evidence: `${artifacts.length} checksum-verified artifacts`, humanGate: 'genome_compile',
-    },
-    {
-      id: 'evaluation', label: 'Evaluation evidence', state: artifacts.length > 0 ? 'blocked' : 'empty',
-      evidenceCount: 0, evidence: '0 runtime evaluation result sets connected', humanGate: 'evaluation_review',
-    },
-    {
-      id: 'evolution', label: 'Evolution candidate', state: 'blocked',
-      evidenceCount: 0, evidence: 'runtime metrics and audit evidence are not connected', humanGate: 'evolution_review',
-    },
-    {
-      id: 'production', label: 'Production release', state: 'blocked',
-      evidenceCount: 0, evidence: 'productionStatus=unchanged', humanGate: 'exact_release_authorization',
-    },
-  ];
+function workflow(registry: EvidenceRegistryProjection): ProductOperationsProjection['workflow'] {
+  const workflowIds = ['capture', 'review', 'blueprint', 'artifact', 'evaluation', 'evolution', 'production'] as const;
+  return workflowIds.map(id => {
+    const claim = registry.readiness.find(candidate => candidate.id === id);
+    if (!claim) throw new Error(`EVIDENCE_READINESS_MISSING: ${id}`);
+    const state: WorkflowState = claim.status === 'ready' ? 'complete'
+      : claim.status === 'active' ? 'active'
+        : claim.status === 'empty' ? 'empty'
+          : 'blocked';
+    return {
+      id,
+      label: claim.label,
+      state,
+      evidenceCount: claim.evidenceIds.length,
+      evidence: claim.summary,
+      evidenceIds: [...claim.evidenceIds],
+      freshness: claim.freshness,
+      humanGate: claim.humanGate,
+    };
+  });
 }
 
-function timeline(
-  library: KnowledgeLibraryProjection,
-  blueprints: BlueprintCandidateRecord[],
-  artifacts: BlueprintArtifactRecord[],
-): ProductOperationsProjection['timeline'] {
+function timeline(registry: EvidenceRegistryProjection): ProductOperationsProjection['timeline'] & { events: TimelineEvent[] } {
   const validEvents: TimelineEvent[] = [];
   const observedEvents: TimelineEvent[] = [];
+  const governanceEvents: TimelineEvent[] = [];
   let unknownCount = 0;
-  for (const item of library.items) {
+  for (const item of registry.items) {
     if (item.validTime.from) {
       validEvents.push({
-        id: `valid:${item.objectId}:r${item.revision}`,
+        id: `valid:${item.evidenceId}`,
+        axis: 'valid',
         at: item.validTime.from,
         title: item.title,
         detail: item.validTime.until ? `valid until ${item.validTime.until}` : 'open-ended validity',
-        sourceRef: item.objectId,
+        sourceRef: item.source.ref,
+        evidenceId: item.evidenceId,
+        kind: item.kind,
       });
-    } else {
+    } else if (item.kind === 'knowledge_source' && item.subject.type === 'knowledge_object') {
       unknownCount += 1;
     }
-    observedEvents.push({
-      id: `observed:${item.objectId}:r${item.revision}`,
-      at: item.observedAt,
-      title: item.title,
-      detail: `system observed revision ${item.revision}`,
-      sourceRef: item.objectId,
-    });
-  }
-  const governanceEvents: TimelineEvent[] = [];
-  for (const record of blueprints) {
-    governanceEvents.push({
-      id: `blueprint:${record.blueprintId}:created`,
-      at: record.blueprint.created_at,
-      title: record.blueprint.product_task.product_name,
-      detail: `${record.blueprint.status} Blueprint · current R${record.revision}`,
-      sourceRef: record.blueprintId,
-    });
-    if (record.blueprint.decision.decided_at) {
+    if (item.observedAt) {
+      observedEvents.push({
+        id: `observed:${item.evidenceId}`,
+        axis: 'observed',
+        at: item.observedAt,
+        title: item.title,
+        detail: `${item.evidenceLevel} · ${item.freshness.status}`,
+        sourceRef: item.source.ref,
+        evidenceId: item.evidenceId,
+        kind: item.kind,
+      });
+    }
+    if (item.governanceAt) {
       governanceEvents.push({
-        id: `blueprint:${record.blueprintId}:decision`,
-        at: record.blueprint.decision.decided_at,
-        title: `${record.blueprint.product_task.product_name} decision`,
-        detail: record.blueprint.decision.decision_status,
-        sourceRef: record.blueprintId,
+        id: `governance:${item.evidenceId}`,
+        axis: 'governance',
+        at: item.governanceAt,
+        title: item.title,
+        detail: item.summary,
+        sourceRef: item.source.ref,
+        evidenceId: item.evidenceId,
+        kind: item.kind,
       });
     }
   }
-  for (const artifact of artifacts) {
-    governanceEvents.push({
-      id: `artifact:${artifact.manifest.blueprintId}:${artifact.artifactKey}`,
-      at: artifact.manifest.compiledAt,
-      title: `${artifact.views.prd.productName} Genome`,
-      detail: `verified artifact · R${artifact.manifest.blueprintRevision}`,
-      sourceRef: artifact.manifest.genomeHash,
-    });
-  }
+  const sortedValid = sortedEvents(validEvents);
+  const sortedObserved = sortedEvents(observedEvents);
+  const sortedGovernance = sortedEvents(governanceEvents);
   return {
-    valid: { label: 'valid time', unknownCount, events: sortedEvents(validEvents) },
-    observed: { label: 'observed time', events: sortedEvents(observedEvents) },
-    governance: { label: 'governance time', events: sortedEvents(governanceEvents) },
+    valid: { label: 'valid time', unknownCount, events: sortedValid },
+    observed: { label: 'observed time', events: sortedObserved },
+    governance: { label: 'governance time', events: sortedGovernance },
+    events: sortedEvents([...sortedValid, ...sortedObserved, ...sortedGovernance]),
   };
 }
 
 function evolution(
+  registry: EvidenceRegistryProjection,
   library: KnowledgeLibraryProjection,
   blueprints: BlueprintCandidateRecord[],
   artifacts: BlueprintArtifactRecord[],
@@ -195,37 +193,20 @@ function evolution(
   const draftBlueprints = blueprints.filter(record => record.blueprint.status !== 'approved').length;
   const approvedWithoutArtifact = blueprints.filter(record => record.blueprint.status === 'approved'
     && !artifacts.some(artifact => artifact.manifest.blueprintId === record.blueprintId && artifact.manifest.blueprintRevision === record.revision)).length;
-  const checks: ProductOperationsProjection['evolution']['checks'] = [
-    {
-      id: 'genome_contract', label: 'Genome contract integrity', status: artifacts.length > 0 ? 'ready' : 'blocked',
-      evidence: artifacts.length > 0 ? `${artifacts.length} checksum + contract verified artifacts` : 'no verified artifact',
-      requiredEvidence: 'validated current Genome artifact',
-    },
-    {
-      id: 'safety_eval', label: 'Safety evaluation results', status: 'not_measured',
-      evidence: '尚无真实指标证据 · no eval result dataset connected', requiredEvidence: 'timestamped safety rubric results',
-    },
-    {
-      id: 'product_metrics', label: 'Product metric trend', status: 'not_measured',
-      evidence: '尚无真实指标证据 · no runtime metric series connected', requiredEvidence: 'versioned metric observations',
-    },
-    {
-      id: 'review_backlog', label: 'Human review backlog', status: library.stats.reviewRequired > 0 ? 'blocked' : 'ready',
-      evidence: `${library.stats.reviewRequired} candidate objects require review`, requiredEvidence: 'review decisions and throughput window',
-    },
-    {
-      id: 'canonical_lineage', label: 'Canonical lineage integrity', status: 'not_measured',
-      evidence: 'candidate projection does not prove canonical lineage', requiredEvidence: 'verified promotion and lineage journal',
-    },
-    {
-      id: 'provider_authorization', label: 'Provider authorization ledger', status: 'not_measured',
-      evidence: 'provider_call=false in this batch; no runtime ledger connected', requiredEvidence: 'provider calls matched to explicit authorization',
-    },
-    {
-      id: 'production_release', label: 'Production release identity', status: 'blocked',
-      evidence: 'productionStatus=unchanged', requiredEvidence: 'exact commit, image, backup and window authorization',
-    },
-  ];
+  const checkIds = ['genome_contract', 'safety_eval', 'product_metrics', 'review_backlog', 'canonical_lineage', 'provider_authorization', 'production_release'];
+  const checks: ProductOperationsProjection['evolution']['checks'] = checkIds.map(id => {
+    const claim = registry.readiness.find(candidate => candidate.id === id);
+    if (!claim) throw new Error(`EVIDENCE_READINESS_MISSING: ${id}`);
+    return {
+      id,
+      label: claim.label,
+      status: claim.status === 'ready' ? 'ready' : claim.status === 'not_measured' ? 'not_measured' : 'blocked',
+      evidence: claim.summary,
+      evidenceIds: [...claim.evidenceIds],
+      freshness: claim.freshness,
+      requiredEvidence: claim.requiredEvidence,
+    };
+  });
   const employees: DigitalEmployeeProjection[] = [
     {
       id: 'employee.curator', name: 'Knowledge Curator', role: '知识整理员', status: library.stats.reviewRequired > 0 ? 'waiting_human' : 'idle',
@@ -279,9 +260,18 @@ export function buildProductOperationsProjection(input: {
   library: KnowledgeLibraryProjection;
   blueprints: BlueprintCandidateRecord[];
   artifacts: BlueprintArtifactRecord[];
+  provider?: ProviderProjectionInput;
+  now?: string;
 }): ProductOperationsProjection {
   const blueprints = [...input.blueprints].sort((left, right) => left.blueprintId.localeCompare(right.blueprintId));
   const artifacts = [...input.artifacts].sort((left, right) => right.manifest.compiledAt.localeCompare(left.manifest.compiledAt));
+  const evidence = buildEvidenceRegistry({
+    library: input.library,
+    blueprints,
+    artifacts,
+    provider: input.provider,
+    now: input.now ?? input.library.source.generatedAt,
+  });
   return {
     schemaVersion: 'doccanvas-product-operations-v1',
     generatedFrom: {
@@ -292,8 +282,11 @@ export function buildProductOperationsProjection(input: {
       artifactCount: artifacts.length,
     },
     artifacts: artifacts.map(artifact => ({ artifactKey: artifact.artifactKey, manifest: structuredClone(artifact.manifest), views: structuredClone(artifact.views) })),
-    workflow: workflow(input.library, blueprints, artifacts),
-    timeline: timeline(input.library, blueprints, artifacts),
-    evolution: evolution(input.library, blueprints, artifacts),
+    productChains: buildProductChains({ blueprints, artifacts }),
+    evidenceRegistry: evidence.registry,
+    providerOps: evidence.providerOps,
+    workflow: workflow(evidence.registry),
+    timeline: timeline(evidence.registry),
+    evolution: evolution(evidence.registry, input.library, blueprints, artifacts),
   };
 }

@@ -4,9 +4,11 @@ import { z } from 'zod';
 import { parseJsonBody } from '@/lib/server/parse-json-body';
 import {
   BlueprintWorkspaceError,
+  compareBlueprintCandidateRevisions,
   loadBlueprintCandidate,
   updateBlueprintCandidate,
 } from '@/lib/server/blueprint-workspace-store';
+import { listBlueprintArtifacts } from '@/lib/server/artifact-catalog';
 import { checkWriteAccess, getWritePolicy } from '@/lib/server/write-guard';
 
 const BlueprintIdSchema = z.string().regex(/^blueprint\.[a-zA-Z0-9._-]+$/u);
@@ -28,10 +30,26 @@ async function blueprintId(context: { params: Promise<{ blueprintId: string }> }
   return BlueprintIdSchema.safeParse(value).success ? value : null;
 }
 
-export async function GET(_req: NextRequest, context: { params: Promise<{ blueprintId: string }> }) {
+export async function GET(req: NextRequest, context: { params: Promise<{ blueprintId: string }> }) {
   const id = await blueprintId(context);
   if (!id) return NextResponse.json({ error: 'Invalid blueprintId.' }, { status: 400 });
   try {
+    const from = req.nextUrl.searchParams.get('from');
+    const to = req.nextUrl.searchParams.get('to');
+    if (from !== null || to !== null) {
+      if (!from || !to || !/^\d+$/u.test(from) || !/^\d+$/u.test(to)) {
+        return NextResponse.json({ error: 'Both from and to revisions are required.' }, { status: 400 });
+      }
+      const affectedArtifactKeys = listBlueprintArtifacts()
+        .filter(artifact => artifact.manifest.blueprintId === id && artifact.manifest.blueprintRevision === Number(from))
+        .map(artifact => artifact.artifactKey);
+      return NextResponse.json(compareBlueprintCandidateRevisions({
+        blueprintId: id,
+        fromRevision: Number(from),
+        toRevision: Number(to),
+        affectedArtifactKeys,
+      }), { headers: { 'Cache-Control': 'no-store' } });
+    }
     return NextResponse.json(loadBlueprintCandidate({ blueprintId: id }), { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return errorResponse(error);

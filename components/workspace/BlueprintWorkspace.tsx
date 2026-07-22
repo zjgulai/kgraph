@@ -6,10 +6,22 @@ import { OwnerSessionControl } from '@/components/canvas/OwnerSessionControl';
 import type { BlueprintCandidateRecord, BlueprintCandidateSummary } from '@/lib/server/blueprint-workspace-store';
 import type { ProductBlueprint } from '../../../scripts/lib/blueprint-contract';
 import type { WritePolicy } from '@/lib/server/write-guard';
+import type { BlueprintRevisionComparison } from '@/lib/product/blueprint-diff';
+import type { BlueprintCompilePreview } from '@/lib/server/blueprint-artifact-store';
+import type { ProductChainProjection } from '@/lib/product/product-chain';
+import {
+  blueprintDraftStorageKey,
+  parseBlueprintDraft,
+  serializeBlueprintDraft,
+  type StoredBlueprintDraft,
+} from '@/lib/product/workspace-drafts';
 
 interface Props {
   writePolicy: WritePolicy;
   initialBlueprintId?: string | null;
+  initialRevision?: number | null;
+  chain?: ProductChainProjection | null;
+  onBlueprintSelected?: (blueprintId: string) => void;
   onArtifactCompiled?: () => void;
 }
 
@@ -25,7 +37,9 @@ function useMobileReadonly() {
   return mobile;
 }
 
-export function BlueprintWorkspace({ writePolicy, initialBlueprintId, onArtifactCompiled }: Props) {
+type BlueprintSection = 'task' | 'solution' | 'governance' | 'history';
+
+export function BlueprintWorkspace({ writePolicy, initialBlueprintId, initialRevision, chain, onBlueprintSelected, onArtifactCompiled }: Props) {
   const [items, setItems] = useState<BlueprintCandidateSummary[]>([]);
   const [selectedId, setSelectedId] = useState(initialBlueprintId ?? '');
   const [record, setRecord] = useState<BlueprintCandidateRecord | null>(null);
@@ -34,6 +48,11 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, onArtifact
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [compiledYaml, setCompiledYaml] = useState('');
+  const [section, setSection] = useState<BlueprintSection>('task');
+  const [comparison, setComparison] = useState<BlueprintRevisionComparison | null>(null);
+  const [preview, setPreview] = useState<BlueprintCompilePreview | null>(null);
+  const [approvalRationale, setApprovalRationale] = useState('人工复核 Product Task、证据、方案、硬门与 execution spec 后批准。');
+  const [staleDraft, setStaleDraft] = useState<StoredBlueprintDraft | null>(null);
   const mobile = useMobileReadonly();
   const canEdit = writePolicy.writable && ownerAuthenticated && !mobile;
   const dirty = useMemo(() => Boolean(record && draft && JSON.stringify(record.blueprint) !== JSON.stringify(draft)), [draft, record]);
@@ -60,8 +79,29 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, onArtifact
       const payload = await response.json() as BlueprintCandidateRecord & { error?: string };
       if (!response.ok || !payload.blueprint) throw new Error(payload.error || 'Blueprint 加载失败。');
       setRecord(payload);
-      setDraft(structuredClone(payload.blueprint));
+      const stored = parseBlueprintDraft(window.localStorage.getItem(blueprintDraftStorageKey(payload.blueprintId)));
+      if (stored && stored.baseRevision === payload.revision && stored.baseDocumentHash === payload.documentHash) {
+        setDraft(structuredClone(stored.draft));
+        setStaleDraft(null);
+        setStatus('已恢复浏览器本地 Blueprint 草稿；尚未写入新 revision。');
+      } else {
+        setDraft(structuredClone(payload.blueprint));
+        setStaleDraft(stored);
+        if (stored) setStatus('检测到基于旧 revision 的本地草稿；已保留，需在 Revision Diff 中人工选择。');
+      }
       setCompiledYaml('');
+      setPreview(null);
+      const fromRevision = initialRevision && payload.revisions.includes(initialRevision)
+        ? initialRevision
+        : payload.revisions.find(revision => revision < payload.revision) ?? null;
+      if (fromRevision) {
+        const compareResponse = await fetch(`/api/blueprints/${encodeURIComponent(blueprintId)}?from=${fromRevision}&to=${payload.revision}`, { cache: 'no-store', credentials: 'same-origin' });
+        const compared = await compareResponse.json() as BlueprintRevisionComparison & { error?: string };
+        if (!compareResponse.ok) throw new Error(compared.error || 'Blueprint revision diff 加载失败。');
+        setComparison(compared);
+      } else {
+        setComparison(null);
+      }
     } catch (error) {
       setRecord(null);
       setDraft(null);
@@ -81,11 +121,21 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, onArtifact
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
+  useEffect(() => {
+    if (!record || !draft || !dirty) return;
+    window.localStorage.setItem(blueprintDraftStorageKey(record.blueprintId), serializeBlueprintDraft({
+      blueprintId: record.blueprintId,
+      baseRevision: record.revision,
+      baseDocumentHash: record.documentHash,
+      draft,
+    }));
+  }, [dirty, draft, record]);
 
   const select = (blueprintId: string) => {
     if (blueprintId === selectedId) return;
     if (dirty && !window.confirm('当前 Blueprint 有未保存草稿。放弃并切换？')) return;
     setSelectedId(blueprintId);
+    onBlueprintSelected?.(blueprintId);
   };
 
   const save = async () => {
@@ -107,6 +157,9 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, onArtifact
       }
       setRecord(payload);
       setDraft(structuredClone(payload.blueprint));
+      setPreview(null);
+      setStaleDraft(null);
+      window.localStorage.removeItem(blueprintDraftStorageKey(payload.blueprintId));
       await loadList();
       setStatus(`Blueprint revision ${payload.revision} 已保存；未执行批准或发布。`);
     } catch (error) {
@@ -116,10 +169,11 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, onArtifact
     }
   };
 
-  const compile = async () => {
+  const createPreview = async () => {
     if (!record || !canEdit || busy) return;
     if (record.blueprint.status !== 'approved' || !record.blueprint.execution) {
       setCompiledYaml('');
+      setPreview(null);
       setStatus('治理门已阻断：只有 approved 且包含完整 execution spec 的 Blueprint 才能编译。');
       return;
     }
@@ -127,19 +181,79 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, onArtifact
     setStatus('');
     setCompiledYaml('');
     try {
+      const compiledAt = new Date().toISOString();
+      const params = new URLSearchParams({
+        baseRevision: String(record.revision),
+        baseDocumentHash: record.documentHash,
+        compiledAt,
+      });
+      const response = await fetch(`/api/blueprints/${encodeURIComponent(record.blueprintId)}/compile?${params.toString()}`, {
+        cache: 'no-store', credentials: 'same-origin',
+      });
+      const payload = await response.json() as BlueprintCompilePreview & { error?: string; code?: string };
+      if (!response.ok || !payload.inputHash) {
+        if (payload.code === 'BLUEPRINT_NOT_COMPILE_READY') throw new Error('治理门已阻断：只有 approved 且包含完整 execution spec 的 Blueprint 才能编译。');
+        throw new Error(payload.error || '编译预览失败。');
+      }
+      setPreview(payload);
+      setStatus('编译预览已生成；尚未创建 Artifact。请核对 exact input hash 与输出后再编译。');
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '编译预览失败。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const compile = async () => {
+    if (!record || !preview || !canEdit || busy) return;
+    setBusy(true);
+    setStatus('');
+    try {
       const response = await fetch(`/api/blueprints/${encodeURIComponent(record.blueprintId)}/compile`, {
-        method: 'POST', credentials: 'same-origin',
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseRevision: preview.blueprintRevision, baseDocumentHash: preview.inputHash, compiledAt: preview.compiledAt }),
       });
       const payload = await response.json() as { genomeYaml?: string; manifest?: { genomeHash: string }; error?: string; code?: string };
       if (!response.ok || !payload.genomeYaml) {
-        if (payload.code === 'BLUEPRINT_NOT_COMPILE_READY') throw new Error('治理门已阻断：只有 approved 且包含完整 execution spec 的 Blueprint 才能编译。');
+        if (payload.code === 'BLUEPRINT_COMPILE_INPUT_DRIFT') throw new Error('Blueprint 已变化，旧编译预览失效。请重新生成预览。');
         throw new Error(payload.error || 'Blueprint 编译失败。');
       }
       setCompiledYaml(payload.genomeYaml);
+      setPreview(null);
       setStatus(`Genome 已通过二次校验并 create-only 保存：${payload.manifest?.genomeHash ?? ''}`);
       onArtifactCompiled?.();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Blueprint 编译失败。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approve = async () => {
+    if (!record || !draft || !canEdit || dirty || busy || !draft.decision.primary_option_id) return;
+    setBusy(true);
+    setStatus('');
+    try {
+      const response = await fetch(`/api/blueprints/${encodeURIComponent(record.blueprintId)}/approve`, {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          baseRevision: record.revision,
+          baseDocumentHash: record.documentHash,
+          primaryOptionId: draft.decision.primary_option_id,
+          rationale: approvalRationale,
+        }),
+      });
+      const payload = await response.json() as BlueprintCandidateRecord & { error?: string };
+      if (!response.ok || !payload.blueprint) throw new Error(payload.error || 'Blueprint 批准失败。');
+      setRecord(payload);
+      setDraft(structuredClone(payload.blueprint));
+      setPreview(null);
+      setStaleDraft(null);
+      window.localStorage.removeItem(blueprintDraftStorageKey(payload.blueprintId));
+      await loadList();
+      setStatus(`Blueprint R${payload.revision} 已批准；尚未编译 Artifact。`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Blueprint 批准失败。');
     } finally {
       setBusy(false);
     }
@@ -171,7 +285,7 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, onArtifact
     <div className="blueprint-workspace">
       <header className="blueprint-workspace__masthead">
         <div>
-          <span><Workflow aria-hidden="true" />BLUEPRINT LEDGER / 05</span>
+          <span><Workflow aria-hidden="true" />Product / Blueprint Ledger</span>
           <h1>Blueprint Compiler</h1>
           <p>候选修订、治理诊断与 approved-only Genome 编译共享同一条证据链。</p>
         </div>
@@ -200,34 +314,53 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, onArtifact
               <div><em data-status={draft.status}>{draft.status}</em><code>{record.documentHash.slice(0, 24)}…</code></div>
             </header>
 
-            {canEdit ? <form className="blueprint-editor" onSubmit={event => { event.preventDefault(); void save(); }}>
-              <fieldset>
+            <nav className="blueprint-section-nav" aria-label="Blueprint sections">
+              {([['task', 'Product Task'], ['solution', '方案'], ['governance', '治理与编译'], ['history', 'Revision Diff']] as const).map(([id, label]) => <button key={id} type="button" data-selected={section === id} onClick={() => setSection(id)}>{label}</button>)}
+            </nav>
+
+            {section === 'history' ? <section className="blueprint-diff-panel" aria-label="Blueprint revision diff">
+              {staleDraft ? <aside className="stale-blueprint-draft"><strong>旧基线本地草稿</strong><span>R{staleDraft.baseRevision} / {staleDraft.baseDocumentHash.slice(0, 20)}…</span><div><button type="button" onClick={() => { setDraft({ ...structuredClone(staleDraft.draft), version: record.revision + 1 }); setStaleDraft(null); }}>人工应用到当前草稿</button><button type="button" onClick={() => { window.localStorage.removeItem(blueprintDraftStorageKey(record.blueprintId)); setStaleDraft(null); }}>放弃旧草稿</button></div></aside> : null}
+              {comparison ? <><header><strong>R{comparison.fromRevision} → R{comparison.toRevision}</strong><span>{comparison.changes.length} changes</span></header><p>{comparison.knowledgeBaselineDrift ? 'Knowledge baseline 已漂移' : 'Knowledge baseline 未变化'}</p><ul>{comparison.changes.map(change => <li key={change.path}><code>{change.path}</code><span>{change.impact.length ? change.impact.join(' · ') : 'governance metadata'}</span></li>)}</ul><footer>重编译范围：{comparison.recompileScope.join(' · ') || 'none'}；受影响 Artifact：{comparison.affectedArtifactKeys.length}</footer></> : <p>当前只有一个 revision，暂无可比较版本。</p>}
+            </section> : canEdit ? <form className="blueprint-editor" onSubmit={event => { event.preventDefault(); void save(); }}>
+              {section === 'task' ? <fieldset>
                 <legend>01 / Product Task</legend>
                 <label>候选状态{draft.status === 'draft' || draft.status === 'review' ? <select value={draft.status} onChange={event => setDraft(current => current ? { ...current, status: event.target.value as 'draft' | 'review' } : current)}><option value="draft">draft</option><option value="review">review</option></select> : <input value={draft.status} readOnly aria-label="已治理 Blueprint 状态" />}</label>
                 <label>知识基线<input value={draft.base_knowledge_revision} readOnly /></label>
                 <label className="is-wide">目标<textarea rows={3} value={draft.product_task.goal} onChange={event => updateTask('goal', event.target.value)} /></label>
                 <label className="is-wide">问题<textarea rows={3} value={draft.product_task.problem} onChange={event => updateTask('problem', event.target.value)} /></label>
-              </fieldset>
-              <fieldset>
+                <label>Task ID<input value={draft.product_task.task_id} readOnly /></label>
+                <label>目标用户<textarea rows={3} value={draft.product_task.target_users.join('\n')} readOnly /></label>
+              </fieldset> : null}
+              {section === 'solution' ? <fieldset>
                 <legend>02 / 主备方案</legend>
                 {draft.options.map((option, index) => <React.Fragment key={option.option_id}>
                   <label>{index === 0 ? '主候选标题' : '备选标题'}<input value={option.title} onChange={event => updateOption(index, 'title', event.target.value)} /></label>
                   <label>{index === 0 ? '主候选说明' : '备选说明'}<textarea rows={3} value={option.description} onChange={event => updateOption(index, 'description', event.target.value)} /></label>
                 </React.Fragment>)}
-                <label className="is-wide">硬门判据<input value={draft.constraints.hard_gates[0]?.criterion ?? ''} onChange={event => setDraft(current => current ? { ...current, constraints: { ...current.constraints, hard_gates: current.constraints.hard_gates.map((gate, index) => index === 0 ? { ...gate, criterion: event.target.value } : gate) } } : current)} /></label>
-              </fieldset>
-              <fieldset>
+              </fieldset> : null}
+              {section === 'solution' ? <fieldset>
                 <legend>03 / 商业假设</legend>
                 <label>Customer Job<textarea rows={3} value={draft.commercial_hypotheses[0]?.customer_job ?? ''} onChange={event => updateCommercial('customer_job', event.target.value)} /></label>
                 <label>价值主张<textarea rows={3} value={draft.commercial_hypotheses[0]?.value_proposition ?? ''} onChange={event => updateCommercial('value_proposition', event.target.value)} /></label>
                 <label>价值单位<input value={draft.commercial_hypotheses[0]?.value_unit ?? ''} onChange={event => updateCommercial('value_unit', event.target.value)} /></label>
                 <label>验证实验<input value={draft.commercial_hypotheses[0]?.experiment ?? ''} onChange={event => updateCommercial('experiment', event.target.value)} /></label>
-              </fieldset>
+              </fieldset> : null}
+              {section === 'governance' ? <fieldset>
+                <legend>04 / 治理、批准与编译</legend>
+                <label>主方案<select value={draft.decision.primary_option_id ?? ''} onChange={event => setDraft(current => current ? { ...current, decision: { ...current.decision, primary_option_id: event.target.value || null } } : current)}><option value="">未选择</option>{draft.options.map(option => <option key={option.option_id} value={option.option_id}>{option.title}</option>)}</select></label>
+                <label>证据结论<select value={draft.evidence_matrix[0]?.status ?? 'insufficient'} onChange={event => setDraft(current => current ? { ...current, evidence_matrix: current.evidence_matrix.map((item, index) => index === 0 ? { ...item, status: event.target.value as typeof item.status } : item) } : current)}>{['insufficient', 'supported', 'mixed', 'contradicted'].map(value => <option key={value}>{value}</option>)}</select></label>
+                {draft.constraints.hard_gates.map((gate, index) => <React.Fragment key={gate.gate_id}><label>硬门判据<input value={gate.criterion} onChange={event => setDraft(current => current ? { ...current, constraints: { ...current.constraints, hard_gates: current.constraints.hard_gates.map((item, gateIndex) => gateIndex === index ? { ...item, criterion: event.target.value } : item) } } : current)} /></label><label>硬门结果<select value={gate.result} onChange={event => setDraft(current => current ? { ...current, constraints: { ...current.constraints, hard_gates: current.constraints.hard_gates.map((item, gateIndex) => gateIndex === index ? { ...item, result: event.target.value as typeof item.result } : item) } } : current)}>{['pending', 'pass', 'fail', 'not_applicable'].map(value => <option key={value}>{value}</option>)}</select></label></React.Fragment>)}
+                {draft.options.map((option, index) => <label key={option.option_id}>{option.title} gate<select value={option.hard_gate_result} onChange={event => setDraft(current => current ? { ...current, options: current.options.map((item, optionIndex) => optionIndex === index ? { ...item, hard_gate_result: event.target.value as typeof item.hard_gate_result } : item) } : current)}>{['pending', 'pass', 'fail'].map(value => <option key={value}>{value}</option>)}</select></label>)}
+                <label className="is-wide">批准理由<textarea rows={3} value={approvalRationale} onChange={event => setApprovalRationale(event.target.value)} /></label>
+                <p className="blueprint-execution-state">Execution spec：{draft.execution ? '已提供' : '缺失，批准与编译保持 BLOCK'}</p>
+              </fieldset> : null}
               <footer>
                 <p>{dirty ? '存在未保存 Blueprint 草稿' : '当前表单与 revision 一致'}</p>
-                <button type="button" disabled={!dirty || busy} onClick={() => setDraft(structuredClone(record.blueprint))}>放弃草稿</button>
+                <button type="button" disabled={!dirty || busy} onClick={() => { setDraft(structuredClone(record.blueprint)); window.localStorage.removeItem(blueprintDraftStorageKey(record.blueprintId)); }}>放弃草稿</button>
                 <button type="submit" disabled={!dirty || busy}><Save aria-hidden="true" />保存 revision</button>
-                <button type="button" disabled={dirty || busy} onClick={() => void compile()}><Workflow aria-hidden="true" />{record.blueprint.status === 'approved' ? '编译 Genome' : '验证编译门'}</button>
+                <button type="button" disabled={dirty || busy || draft.status !== 'review' || !draft.decision.primary_option_id} onClick={() => void approve()}><CheckCircle2 aria-hidden="true" />批准 Blueprint</button>
+                <button type="button" disabled={dirty || busy} onClick={() => void createPreview()}><Workflow aria-hidden="true" />生成编译预览</button>
+                <button type="button" disabled={!preview || busy} onClick={() => void compile()}><Workflow aria-hidden="true" />确认并编译 Artifact</button>
                 {compiledYaml ? <button type="button" onClick={download}><Download aria-hidden="true" />下载 Genome</button> : null}
               </footer>
             </form> : <section className="blueprint-readonly">
@@ -237,6 +370,7 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, onArtifact
             </section>}
 
             {status ? <p className="blueprint-dossier__status" role="status">{status}</p> : null}
+            {preview ? <section className="compile-preview" aria-label="编译预览"><h3>Compile Preview</h3><dl><div><dt>Input hash</dt><dd><code>{preview.inputHash}</code></dd></div><div><dt>Task</dt><dd>{preview.productTaskId}</dd></div><div><dt>Artifact key</dt><dd>{preview.artifactKey}</dd></div><div><dt>Outputs</dt><dd>{preview.outputs.join(' · ')}</dd></div><div><dt>Compiler</dt><dd>{preview.compilerVersion}</dd></div><div><dt>写入状态</dt><dd>尚未创建</dd></div></dl></section> : null}
           </> : <div className="blueprint-empty"><Workflow aria-hidden="true" />{status || '请选择 Blueprint，或先在 Solution Studio 创建候选。'}</div>}
         </main>
 
@@ -251,6 +385,10 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, onArtifact
             <section>
               <h3>Revision ledger</h3>
               <ol>{record.revisions.map(revision => <li key={revision}><FileClock aria-hidden="true" /><span>R{revision}</span>{revision === record.revision ? <em>CURRENT</em> : null}</li>)}</ol>
+            </section>
+            <section>
+              <h3>Lineage & impact</h3>
+              <dl className="blueprint-lineage"><div><dt>Product Task</dt><dd>{record.blueprint.product_task.task_id}</dd></div><div><dt>Knowledge baseline</dt><dd><code>{record.blueprint.base_knowledge_revision}</code></dd></div><div><dt>Evidence</dt><dd>{record.blueprint.evidence_matrix.flatMap(item => item.evidence_ids).length}</dd></div><div><dt>Artifacts</dt><dd>{chain?.artifacts.length ?? 0}</dd></div></dl>
             </section>
           </> : <p>选择 Blueprint 后显示治理门与不可变 revision。</p>}
         </aside>

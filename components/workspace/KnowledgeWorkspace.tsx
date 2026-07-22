@@ -1,33 +1,30 @@
 'use client';
 
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Archive,
-  Bot,
-  BookOpenText,
-  Boxes,
-  BrainCircuit,
-  ClipboardCheck,
-  Command,
-  FileInput,
-  FileStack,
-  GitBranch,
-  History,
-  Network,
-  Search,
-  ShieldCheck,
-  Sparkles,
-  Workflow,
-} from 'lucide-react';
 import type { WritePolicy } from '@/lib/server/write-guard';
 import type { DocumentEntry } from '@/lib/shared/document-registry';
-import {
-  EMPTY_KNOWLEDGE_FILTERS,
-  type KnowledgeLibraryFilters,
-  type KnowledgeLibraryProjection,
-} from '@/lib/knowledge/library-types';
+import type { KnowledgeLibraryProjection } from '@/lib/knowledge/library-types';
 import { filterKnowledgeItems } from '@/lib/knowledge/library-filter';
+import {
+  DEFAULT_WORKBENCH_ROUTE,
+  parseWorkbenchRoute,
+  toCanvasObject,
+  toArtifact,
+  toKnowledgeObject,
+  toProductTask,
+  toReviewObject,
+  withBlueprint,
+  withEvidenceRecord,
+  withKnowledgeFilters,
+  withKnowledgeObject,
+  withWorkbenchView,
+  workbenchHref,
+  type WorkbenchRoute,
+} from '@/lib/workbench/routes';
 import { WorkspaceDashboard } from '@/components/canvas/WorkspaceDashboard';
+import { WorkbenchShell, type WorkbenchCountMap } from '@/components/workbench/WorkbenchShell';
+import type { WorkbenchCommandItem } from '@/components/workbench/CommandPalette';
+import { WorkQueue } from '@/components/workbench/WorkQueue';
 import { KnowledgeInspector } from './KnowledgeInspector';
 import { KnowledgeLibrary } from './KnowledgeLibrary';
 import { KnowledgeReviewWorkspace } from './KnowledgeReviewWorkspace';
@@ -38,6 +35,8 @@ import { ArtifactWorkspace } from './ArtifactWorkspace';
 import { WorkflowWorkspace } from './WorkflowWorkspace';
 import { TimelineWorkspace } from './TimelineWorkspace';
 import { EvolutionCockpit } from './EvolutionCockpit';
+import { EvidenceRegistryWorkspace } from './EvidenceRegistryWorkspace';
+import { ProviderOperationsWorkspace } from './ProviderOperationsWorkspace';
 import type { ProductOperationsProjection } from '@/lib/product/operations-projection';
 import { CaptureWorkspace } from './CaptureWorkspace';
 import type { CaptureSummary } from '@/lib/server/knowledge-capture-store';
@@ -55,6 +54,7 @@ interface Props {
   initialGold?: GoldAnnotationSummary[];
   initialEnrichmentEvaluation?: EnrichmentEvaluationReport;
   initialPilotReadiness?: PilotReadinessReport;
+  initialRoute?: WorkbenchRoute;
   enrichmentRuntime?: {
     mode: 'disabled' | 'configured'; providerId: string | null; modelId: string | null; ready: boolean; reason: string;
     jobId?: string; policyHash?: string;
@@ -69,22 +69,9 @@ interface Props {
   writePolicy: WritePolicy;
 }
 
-type WorkspaceView = 'knowledge' | 'capture' | 'enrichment' | 'review' | 'canvas' | 'workflow' | 'timeline' | 'solutions' | 'blueprints' | 'artifacts' | 'evolution' | 'documents';
-
-const viewContext: Record<WorkspaceView, { title: string; mode: string }> = {
-  knowledge: { title: '知识资产与治理工作台', mode: 'Knowledge / Library' },
-  capture: { title: '来源快照与候选生成工作台', mode: 'Capture / Evidence intake' },
-  enrichment: { title: '生成式萃取与人工金标实验室', mode: 'Enrichment / Human-gold eval' },
-  review: { title: '候选证据与修订工作台', mode: 'Review / Candidate governance' },
-  canvas: { title: '知识对象空间关系工作台', mode: 'Canvas / Spatial projection' },
-  workflow: { title: '证据链与产品流程工作台', mode: 'Workflow / Evidence state' },
-  timeline: { title: '双时态知识账本', mode: 'Timeline / Bitemporal ledger' },
-  solutions: { title: '证据驱动方案工作台', mode: 'Solutions / Evidence-bound scaffold' },
-  blueprints: { title: 'Blueprint 修订与编译工作台', mode: 'Blueprints / Governed compiler' },
-  artifacts: { title: '已验证规格与编译视图', mode: 'Artifacts / Compiled views' },
-  evolution: { title: '进化证据与数字员工工作台', mode: 'Evolution / Candidate only' },
-  documents: { title: '源文档与关系画布', mode: 'Documents / Canvas' },
-};
+function cloneDefaultRoute(): WorkbenchRoute {
+  return { ...DEFAULT_WORKBENCH_ROUTE, filters: { ...DEFAULT_WORKBENCH_ROUTE.filters } };
+}
 
 export function KnowledgeWorkspace({
   initialLibrary,
@@ -94,6 +81,7 @@ export function KnowledgeWorkspace({
   initialEnrichments = [],
   initialGold = [],
   initialPilotReadiness,
+  initialRoute = cloneDefaultRoute(),
   initialEnrichmentEvaluation = {
     schemaVersion: 'doccanvas-enrichment-eval-report-v1',
     status: 'insufficient_data',
@@ -125,21 +113,55 @@ export function KnowledgeWorkspace({
   enrichmentRuntime = { mode: 'disabled', providerId: null, modelId: null, ready: false, reason: 'disabled_by_policy' },
   writePolicy,
 }: Props) {
-  const [view, setView] = useState<WorkspaceView>('knowledge');
+  const [route, setRoute] = useState<WorkbenchRoute>(initialRoute);
   const [library, setLibrary] = useState(initialLibrary);
   const [captures, setCaptures] = useState(initialCaptures);
   const [operations, setOperations] = useState(initialOperations);
-  const [filters, setFilters] = useState<KnowledgeLibraryFilters>(EMPTY_KNOWLEDGE_FILTERS);
-  const [selectedId, setSelectedId] = useState(initialLibrary.items[0]?.objectId ?? null);
-  const [selectedBlueprintId, setSelectedBlueprintId] = useState<string | null>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const deferredQuery = useDeferredValue(filters.query);
-  const deferredFilters = useMemo(() => ({ ...filters, query: deferredQuery }), [deferredQuery, filters]);
+  const captureDirtyRef = useRef(false);
+  const reviewDirtyRef = useRef(false);
+  const deferredQuery = useDeferredValue(route.filters.query);
+  const deferredFilters = useMemo(
+    () => ({ ...route.filters, query: deferredQuery }),
+    [deferredQuery, route.filters],
+  );
   const filteredItems = useMemo(
     () => filterKnowledgeItems(library.items, deferredFilters),
     [deferredFilters, library.items],
   );
-  const selectedItem = filteredItems.find(item => item.objectId === selectedId) ?? filteredItems[0] ?? null;
+  const selectedItem = (route.objectId ? library.items.find(item => item.objectId === route.objectId) : null)
+    ?? filteredItems[0]
+    ?? null;
+  const selectedCapture = (route.captureId ? captures.find(capture => capture.captureId === route.captureId) : null)
+    ?? (selectedItem ? captures.find(capture => capture.objectId === selectedItem.objectId) : null)
+    ?? null;
+  const selectedProductChain = operations.productChains.find(item => (
+    item.taskId === route.taskId || item.blueprintId === route.blueprintId
+  )) ?? null;
+
+  const navigate = useCallback((next: WorkbenchRoute, mode: 'push' | 'replace' = 'push', skipDraftGuard = false) => {
+    if (!skipDraftGuard && next.view !== route.view) {
+      const dirty = route.view === 'capture' ? captureDirtyRef.current : route.view === 'review' ? reviewDirtyRef.current : false;
+      if (dirty && !window.confirm('当前工作区有未保存草稿，已保存在本地。仍要离开？')) return;
+    }
+    setRoute(next);
+    if (typeof window === 'undefined') return;
+    window.history[mode === 'replace' ? 'replaceState' : 'pushState'](null, '', workbenchHref(next));
+  }, [route.view]);
+
+  useEffect(() => {
+    const restoreRoute = () => {
+      const next = parseWorkbenchRoute(new URLSearchParams(window.location.search));
+      const dirty = route.view === 'capture' ? captureDirtyRef.current : route.view === 'review' ? reviewDirtyRef.current : false;
+      if (next.view !== route.view && dirty && !window.confirm('当前工作区有未保存草稿，已保存在本地。仍要离开？')) {
+        window.history.pushState(null, '', workbenchHref(route));
+        return;
+      }
+      setRoute(next);
+    };
+    window.addEventListener('popstate', restoreRoute);
+    return () => window.removeEventListener('popstate', restoreRoute);
+  }, [route]);
+
   const refreshOperations = useCallback(async () => {
     const response = await fetch('/api/operations', { cache: 'no-store', credentials: 'same-origin' });
     const payload = await response.json() as ProductOperationsProjection & { error?: string };
@@ -147,208 +169,195 @@ export function KnowledgeWorkspace({
     setOperations(payload);
   }, []);
 
-  useEffect(() => {
-    const focusSearch = (event: KeyboardEvent) => {
-      if (view !== 'knowledge' || event.key.toLocaleLowerCase() !== 'k' || (!event.metaKey && !event.ctrlKey)) return;
-      event.preventDefault();
-      searchInputRef.current?.focus();
+  const counts = useMemo<WorkbenchCountMap>(() => ({
+    work: operations.workflow.filter(stage => stage.state === 'active' || stage.state === 'blocked').length,
+    knowledge: library.stats.total,
+    capture: captures.length,
+    enrichment: initialEnrichments.length,
+    review: library.stats.reviewRequired,
+    canvas: library.stats.domainCount,
+    blueprints: operations.generatedFrom.blueprintCount,
+    artifacts: operations.generatedFrom.artifactCount,
+    workflow: operations.workflow.length,
+    evidence: operations.evidenceRegistry.stats.total,
+    provider: operations.providerOps.gates.filter(gate => gate.status !== 'pass').length,
+    timeline: operations.timeline.valid.events.length
+      + operations.timeline.observed.events.length
+      + operations.timeline.governance.events.length,
+    evolution: operations.evolution.checks.filter(check => check.status !== 'ready').length,
+    documents: initialEntries.length,
+  }), [captures.length, initialEnrichments.length, initialEntries.length, library.stats, operations]);
+
+  const commandItems = useMemo<WorkbenchCommandItem[]>(() => [...library.items.map(item => {
+    const target = withKnowledgeObject(withWorkbenchView(route, 'knowledge'), item.objectId);
+    return {
+      id: `knowledge:${item.objectId}`,
+      label: item.title,
+      description: item.summary,
+      group: '知识对象',
+      href: workbenchHref(target),
+      route: target,
+      keywords: [item.objectId, item.knowledgeForm, item.legacy.category, ...item.domainRefs],
     };
-    window.addEventListener('keydown', focusSearch);
-    return () => window.removeEventListener('keydown', focusSearch);
-  }, [view]);
+  }), ...operations.evidenceRegistry.items.map(item => {
+    const target = withEvidenceRecord(route, item.evidenceId);
+    return {
+      id: `evidence:${item.evidenceId}`,
+      label: item.title,
+      description: `${item.summary} · ${item.freshness.status}`,
+      group: '证据注册表',
+      href: workbenchHref(target),
+      route: target,
+      keywords: [item.evidenceId, item.kind, item.state, item.source.ref],
+    };
+  })], [library.items, operations.evidenceRegistry.items, route]);
 
-  useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-  }, [view]);
-
+  const view = route.view;
   return (
-    <main className="knowledge-workspace">
-      <aside className="knowledge-workspace__rail" aria-label="产品工作区导航">
-        <div className="knowledge-workspace__brand">
-          <span><BrainCircuit aria-hidden="true" /></span>
-          <div><strong>DocCanvas</strong><small>KNOWLEDGE OS</small></div>
-        </div>
-        <nav>
-          <button type="button" data-active={view === 'knowledge'} onClick={() => setView('knowledge')}>
-            <BookOpenText aria-hidden="true" /><span>Knowledge</span><b>{library.stats.total}</b>
-          </button>
-          <button type="button" data-active={view === 'capture'} onClick={() => setView('capture')}>
-            <FileInput aria-hidden="true" /><span>Capture</span><b>{captures.length}</b>
-          </button>
-          <button type="button" data-active={view === 'enrichment'} onClick={() => setView('enrichment')}>
-            <Bot aria-hidden="true" /><span>Enrichment</span><b>{initialEnrichments.length}</b>
-          </button>
-          <button type="button" data-active={view === 'review'} onClick={() => setView('review')}>
-            <ClipboardCheck aria-hidden="true" /><span>Review</span><b>{library.stats.reviewRequired}</b>
-          </button>
-          <button type="button" data-active={view === 'canvas'} onClick={() => setView('canvas')}>
-            <Network aria-hidden="true" /><span>Canvas</span><b>{library.stats.domainCount}</b>
-          </button>
-          <button type="button" data-active={view === 'workflow'} onClick={() => setView('workflow')}>
-            <Workflow aria-hidden="true" /><span>Workflow</span><b>{operations.workflow.length}</b>
-          </button>
-          <button type="button" data-active={view === 'timeline'} onClick={() => setView('timeline')}>
-            <History aria-hidden="true" /><span>Timeline</span><b>{operations.timeline.governance.events.length}</b>
-          </button>
-          <button type="button" data-active={view === 'solutions'} onClick={() => setView('solutions')}>
-            <Sparkles aria-hidden="true" /><span>Solutions</span><b>04</b>
-          </button>
-          <button type="button" data-active={view === 'blueprints'} onClick={() => setView('blueprints')}>
-            <Workflow aria-hidden="true" /><span>Blueprints</span><b>05</b>
-          </button>
-          <button type="button" data-active={view === 'artifacts'} onClick={() => setView('artifacts')}>
-            <Archive aria-hidden="true" /><span>Artifacts</span><b>{operations.artifacts.length}</b>
-          </button>
-          <button type="button" data-active={view === 'evolution'} onClick={() => setView('evolution')}>
-            <GitBranch aria-hidden="true" /><span>Evolution</span><b>{operations.evolution.checks.filter(check => check.status !== 'ready').length}</b>
-          </button>
-          <button type="button" data-active={view === 'documents'} onClick={() => setView('documents')}>
-            <FileStack aria-hidden="true" /><span>Documents</span><b>{initialEntries.length}</b>
-          </button>
-        </nav>
-        <div className="knowledge-workspace__boundary">
-          <ShieldCheck aria-hidden="true" />
-          <p><strong>Candidate only</strong><span>本视图不执行 canonical promotion</span></p>
-        </div>
-      </aside>
-
-      <section className="knowledge-workspace__main">
-        <header className="knowledge-commandbar">
-          <div className="knowledge-commandbar__context">
-            <Command aria-hidden="true" />
-            <div><small>Knowledge Product Workspace</small><strong>{viewContext[view].title}</strong></div>
+    <WorkbenchShell route={route} counts={counts} commandItems={commandItems} onNavigate={navigate}>
+      {view === 'work' ? (
+        <WorkQueue route={route} projection={operations} onNavigate={navigate} />
+      ) : view === 'knowledge' ? (
+        <div className="knowledge-workspace__content">
+          <div className="knowledge-workspace__surface">
+            <KnowledgeLibrary
+              allItems={library.items}
+              items={filteredItems}
+              filters={route.filters}
+              selectedId={selectedItem?.objectId ?? null}
+              hrefForObject={objectId => workbenchHref(withKnowledgeObject(route, objectId))}
+              onFiltersChange={filters => navigate(withKnowledgeFilters(route, filters), 'replace')}
+              onSelect={objectId => navigate(withKnowledgeObject(route, objectId))}
+            />
+            <KnowledgeInspector
+              item={selectedItem}
+              capture={selectedCapture}
+              reviewHref={selectedItem ? workbenchHref(toReviewObject(route, selectedItem.objectId, selectedCapture?.captureId)) : null}
+              canvasHref={selectedItem ? workbenchHref(toCanvasObject(route, selectedItem.objectId, selectedCapture?.captureId)) : null}
+              onOpenReview={selectedItem ? () => navigate(toReviewObject(route, selectedItem.objectId, selectedCapture?.captureId)) : undefined}
+              onOpenCanvas={selectedItem ? () => navigate(toCanvasObject(route, selectedItem.objectId, selectedCapture?.captureId)) : undefined}
+            />
           </div>
-          {view === 'knowledge' ? (
-            <label className="knowledge-commandbar__search">
-              <Search aria-hidden="true" />
-              <span className="sr-only">搜索知识对象</span>
-              <input
-                ref={searchInputRef}
-                type="search"
-                aria-label="搜索知识对象"
-                value={filters.query}
-                onChange={event => setFilters(current => ({ ...current, query: event.target.value }))}
-                placeholder="搜索工具、领域、推荐语境…"
-                autoComplete="off"
-              />
-              <kbd>⌘ K</kbd>
-            </label>
-          ) : (
-            <p className="knowledge-commandbar__mode"><Boxes aria-hidden="true" />{viewContext[view].mode}</p>
-          )}
-        </header>
-
-        {view === 'knowledge' ? (
-          <div className="knowledge-workspace__content">
-            <section className="knowledge-overview" aria-labelledby="knowledge-overview-title">
-              <div>
-                <span>CONTROL SURFACE / 01</span>
-                <h1 id="knowledge-overview-title">把零散经验变成<br />可审计的产品能力</h1>
-                <p>这里不是另一份工具清单。每个对象都携带来源、双时态、证据等级和人工门，之后才进入方案、Blueprint 与生产编译。</p>
-              </div>
-              <dl>
-                <div><dt>候选对象</dt><dd>{library.stats.total}</dd><small>等待治理的知识资产</small></div>
-                <div><dt>人工复核</dt><dd>{library.stats.reviewRequired}</dd><small>尚未获得 canonical 身份</small></div>
-                <div><dt>QA 警告</dt><dd>{library.stats.warningCount}</dd><small>保留不确定性，不伪造事实</small></div>
-                <div><dt>领域切面</dt><dd>{library.stats.domainCount}</dd><small>可组合进入产品能力</small></div>
-              </dl>
-            </section>
-
-            <div className="knowledge-workspace__surface">
-              <KnowledgeLibrary
-                allItems={library.items}
-                items={filteredItems}
-                filters={filters}
-                selectedId={selectedItem?.objectId ?? null}
-                onFiltersChange={setFilters}
-                onSelect={setSelectedId}
-              />
-              <KnowledgeInspector item={selectedItem} />
-            </div>
-            <footer className="knowledge-workspace__provenance">
-              <span>PACK</span><code>{library.source.packHash}</code>
-              <span>SOURCE</span><code>{library.source.sourceHash}</code>
-            </footer>
-          </div>
-        ) : view === 'capture' ? (
-          <CaptureWorkspace
-            captures={captures}
-            writePolicy={writePolicy}
-            onCandidateCreated={(item, capture) => {
-              setCaptures(current => [capture, ...current.filter(existing => existing.captureId !== capture.captureId)]);
-              setLibrary(current => {
-                const items = [item, ...current.items.filter(existing => existing.objectId !== item.objectId)];
-                return {
-                  ...current,
-                  stats: {
-                    ...current.stats,
-                    total: items.length,
-                    reviewRequired: items.filter(candidate => candidate.promotionState === 'human_review_required').length,
-                    warningCount: items.reduce((total, candidate) => total + candidate.warningCodes.length, 0),
-                    domainCount: new Set(items.flatMap(candidate => candidate.domainRefs)).size,
-                    lifecycleReview: items.filter(candidate => candidate.legacy.status !== 'active').length,
-                  },
-                  items,
-                };
-              });
-              setSelectedId(item.objectId);
-              void refreshOperations();
-            }}
-          />
-        ) : view === 'enrichment' ? (
-          <EnrichmentWorkspace
-            captures={captures}
-            initialEnrichments={initialEnrichments}
-            initialGold={initialGold}
-            runtime={enrichmentRuntime}
-            evaluation={initialEnrichmentEvaluation}
-            pilot={initialPilotReadiness}
-            writePolicy={writePolicy}
-          />
-        ) : view === 'review' ? (
-          <KnowledgeReviewWorkspace
-            library={library}
-            writePolicy={writePolicy}
-            onLibraryItemUpdated={updated => setLibrary(current => ({
-              ...current,
-              items: current.items.map(item => item.objectId === updated.objectId ? updated : item),
-            }))}
-            onSelectKnowledge={objectId => {
-              setSelectedId(objectId);
-              setView('knowledge');
-            }}
-          />
-        ) : view === 'canvas' ? (
-          <KnowledgeCanvasWorkspace
-            library={library}
-            onSelectKnowledge={objectId => {
-              setSelectedId(objectId);
-              setView('knowledge');
-            }}
-          />
-        ) : view === 'workflow' ? (
-          <WorkflowWorkspace projection={operations} />
-        ) : view === 'timeline' ? (
-          <TimelineWorkspace projection={operations} />
-        ) : view === 'solutions' ? (
-          <SolutionStudioWorkspace
-            library={library}
-            writePolicy={writePolicy}
-            onBlueprintSaved={blueprintId => {
-              setSelectedBlueprintId(blueprintId);
-              setView('blueprints');
-            }}
-          />
-        ) : view === 'blueprints' ? (
-          <BlueprintWorkspace writePolicy={writePolicy} initialBlueprintId={selectedBlueprintId} onArtifactCompiled={() => void refreshOperations()} />
-        ) : view === 'artifacts' ? (
-          <ArtifactWorkspace projection={operations} />
-        ) : view === 'evolution' ? (
-          <EvolutionCockpit projection={operations} />
-        ) : (
-          <WorkspaceDashboard initialEntries={initialEntries} writePolicy={writePolicy} embedded />
-        )}
-      </section>
-    </main>
+          <footer className="knowledge-workspace__provenance">
+            <span>PACK</span><code>{library.source.packHash}</code>
+            <span>SOURCE</span><code>{library.source.sourceHash}</code>
+          </footer>
+        </div>
+      ) : view === 'capture' ? (
+        <CaptureWorkspace
+          captures={captures}
+          writePolicy={writePolicy}
+          onDirtyChange={dirty => { captureDirtyRef.current = dirty; }}
+          onOpenCandidate={(objectId, captureId) => navigate(toKnowledgeObject(route, objectId, captureId), 'push', true)}
+          onCandidateCreated={(item, capture) => {
+            setCaptures(current => [capture, ...current.filter(existing => existing.captureId !== capture.captureId)]);
+            setLibrary(current => {
+              const items = [item, ...current.items.filter(existing => existing.objectId !== item.objectId)];
+              return {
+                ...current,
+                stats: {
+                  ...current.stats,
+                  total: items.length,
+                  reviewRequired: items.filter(candidate => candidate.promotionState === 'human_review_required').length,
+                  warningCount: items.reduce((total, candidate) => total + candidate.warningCodes.length, 0),
+                  domainCount: new Set(items.flatMap(candidate => candidate.domainRefs)).size,
+                  lifecycleReview: items.filter(candidate => candidate.legacy.status !== 'active').length,
+                },
+                items,
+              };
+            });
+            navigate(toKnowledgeObject(route, item.objectId, capture.captureId), 'push', true);
+            void refreshOperations();
+          }}
+        />
+      ) : view === 'enrichment' ? (
+        <EnrichmentWorkspace
+          captures={captures}
+          initialEnrichments={initialEnrichments}
+          initialGold={initialGold}
+          runtime={enrichmentRuntime}
+          evaluation={initialEnrichmentEvaluation}
+          pilot={initialPilotReadiness}
+          writePolicy={writePolicy}
+        />
+      ) : view === 'review' ? (
+        <KnowledgeReviewWorkspace
+          library={library}
+          writePolicy={writePolicy}
+          initialObjectId={route.objectId}
+          onDirtyChange={dirty => { reviewDirtyRef.current = dirty; }}
+          onLibraryItemUpdated={updated => setLibrary(current => ({
+            ...current,
+            items: current.items.map(item => item.objectId === updated.objectId ? updated : item),
+          }))}
+          onSelectKnowledge={objectId => navigate(toKnowledgeObject(route, objectId, route.captureId), 'push', true)}
+        />
+      ) : view === 'canvas' ? (
+        <KnowledgeCanvasWorkspace
+          library={library}
+          initialObjectId={route.objectId}
+          onSelectKnowledge={objectId => navigate(toKnowledgeObject(route, objectId, route.captureId))}
+        />
+      ) : view === 'workflow' ? (
+        <WorkflowWorkspace projection={operations} />
+      ) : view === 'timeline' ? (
+        <TimelineWorkspace
+          projection={operations}
+          initialAxis={route.tab}
+          onAxisChange={axis => navigate({ ...route, tab: axis }, 'replace')}
+          onEvidenceSelected={evidenceId => navigate(withEvidenceRecord(route, evidenceId))}
+        />
+      ) : view === 'evidence' ? (
+        <EvidenceRegistryWorkspace
+          projection={operations}
+          initialEvidenceId={route.evidenceId}
+          hrefForEvidence={evidenceId => workbenchHref(withEvidenceRecord(route, evidenceId))}
+          onEvidenceSelected={evidenceId => navigate(withEvidenceRecord(route, evidenceId))}
+        />
+      ) : view === 'provider' ? (
+        <ProviderOperationsWorkspace projection={operations} />
+      ) : view === 'solutions' ? (
+        <SolutionStudioWorkspace
+          library={library}
+          writePolicy={writePolicy}
+          chains={operations.productChains}
+          initialTaskId={route.taskId}
+          onTaskSelected={(taskId, blueprintId) => navigate(toProductTask(route, taskId, blueprintId))}
+          onBlueprintSaved={(blueprintId, taskId) => navigate(withBlueprint(toProductTask(route, taskId, blueprintId), blueprintId))}
+        />
+      ) : view === 'blueprints' ? (
+        <BlueprintWorkspace
+          writePolicy={writePolicy}
+          initialBlueprintId={route.blueprintId}
+          initialRevision={route.revision}
+          chain={selectedProductChain}
+          onBlueprintSelected={blueprintId => {
+            const chain = operations.productChains.find(item => item.blueprintId === blueprintId);
+            navigate(withBlueprint(chain ? toProductTask(route, chain.taskId, blueprintId) : route, blueprintId));
+          }}
+          onArtifactCompiled={() => void refreshOperations()}
+        />
+      ) : view === 'artifacts' ? (
+        <ArtifactWorkspace
+          projection={operations}
+          initialArtifactKey={route.artifactKey}
+          initialView={route.tab}
+          onTaskSelected={(taskId, blueprintId) => navigate(toProductTask(route, taskId, blueprintId))}
+          onBlueprintSelected={blueprintId => {
+            const chain = operations.productChains.find(item => item.blueprintId === blueprintId);
+            navigate(withBlueprint(chain ? toProductTask(route, chain.taskId, blueprintId) : route, blueprintId));
+          }}
+          onArtifactRouteChange={(blueprintId, artifactKey, tab) => {
+            const chain = operations.productChains.find(item => item.blueprintId === blueprintId);
+            const base = chain ? toProductTask(route, chain.taskId, blueprintId) : route;
+            navigate(toArtifact(base, blueprintId, artifactKey, tab), 'replace');
+          }}
+        />
+      ) : view === 'evolution' ? (
+        <EvolutionCockpit projection={operations} />
+      ) : (
+        <WorkspaceDashboard initialEntries={initialEntries} writePolicy={writePolicy} embedded />
+      )}
+    </WorkbenchShell>
   );
 }

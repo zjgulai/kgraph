@@ -292,6 +292,11 @@ test('Capture Workspace is an evidence intake desk and mobile has no write contr
   assert.match(source, /isMobile/u);
   assert.match(source, /OwnerSessionControl/u);
   assert.match(source, /accept="\.md,\.markdown,\.txt"/u);
+  assert.match(source, /parseCaptureDraft/u);
+  assert.match(source, /localStorage\.setItem\(CAPTURE_DRAFT_STORAGE_KEY/u);
+  assert.match(source, /sourceDigest/u);
+  assert.match(source, /duplicateCaptures/u);
+  assert.match(source, /来源快照预览/u);
   assert.doesNotMatch(source, /canonical|provider_call:\s*true|fetch\(['"]https?:/u);
   const routeSource = readFileSync(resolve(root, 'app/api/knowledge/captures/route.ts'), 'utf8');
   assert.doesNotMatch(routeSource, /fetch\(|openai|anthropic|gemini/u);

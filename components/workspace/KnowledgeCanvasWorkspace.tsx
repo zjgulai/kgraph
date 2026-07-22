@@ -22,6 +22,7 @@ import type { KnowledgeLibraryProjection } from '@/lib/knowledge/library-types';
 
 interface Props {
   library: KnowledgeLibraryProjection;
+  initialObjectId?: string | null;
   onSelectKnowledge: (objectId: string) => void;
 }
 
@@ -37,9 +38,13 @@ function useMobileCanvas(): boolean {
   return isMobile;
 }
 
-export function KnowledgeCanvasWorkspace({ library, onSelectKnowledge }: Props) {
+export function KnowledgeCanvasWorkspace({ library, initialObjectId, onSelectKnowledge }: Props) {
   const projection = useMemo(() => buildKnowledgeCanvasProjection(library.items), [library.items]);
-  const [selectedObjectId, setSelectedObjectId] = useState(projection.objects[0]?.objectId ?? '');
+  const [selectedObjectId, setSelectedObjectId] = useState(
+    initialObjectId && projection.objects.some(object => object.objectId === initialObjectId)
+      ? initialObjectId
+      : projection.objects[0]?.objectId ?? '',
+  );
   const [selectedRelation, setSelectedRelation] = useState<KnowledgeCanvasRelation | null>(null);
   const isMobile = useMobileCanvas();
   const objectBySceneId = useMemo(
@@ -57,6 +62,13 @@ export function KnowledgeCanvasWorkspace({ library, onSelectKnowledge }: Props) 
   const selectedObject = projection.objects.find(object => object.objectId === selectedObjectId)
     ?? projection.objects[0]
     ?? null;
+
+  useEffect(() => {
+    if (initialObjectId && projection.objects.some(object => object.objectId === initialObjectId)) {
+      setSelectedObjectId(initialObjectId);
+      setSelectedRelation(null);
+    }
+  }, [initialObjectId, projection.objects]);
 
   const selectObject = (objectId: string) => {
     setSelectedRelation(null);

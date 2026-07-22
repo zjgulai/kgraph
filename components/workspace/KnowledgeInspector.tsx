@@ -7,13 +7,21 @@ import {
   ExternalLink,
   Fingerprint,
   GitPullRequestArrow,
+  Network,
+  Route,
   ShieldCheck,
 } from 'lucide-react';
 import type { KnowledgeLibraryItem } from '@/lib/knowledge/library-types';
+import type { CaptureSummary } from '@/lib/server/knowledge-capture-store';
 import { formatDisplayDateTime, formatDisplayInteger } from '@/lib/shared/display-format';
 
 interface Props {
   item: KnowledgeLibraryItem | null;
+  capture?: CaptureSummary | null;
+  reviewHref?: string | null;
+  canvasHref?: string | null;
+  onOpenReview?: () => void;
+  onOpenCanvas?: () => void;
 }
 
 const reviewReasonLabels: Record<string, string> = {
@@ -36,7 +44,20 @@ function safeExternalUrl(value: string): string | null {
   }
 }
 
-export function KnowledgeInspector({ item }: Props) {
+const governanceLabels: Record<string, string> = {
+  human_review_required: '需要人工复核', source_registered: '来源已登记', llm_distilled_candidate: '模型萃取候选',
+  machine_reviewed_candidate: '机器复核候选', human_reviewed: '人工已复核', captured: '已采集', modularized: '已模块化',
+  structured: '已结构化', networked: '已关联', productized: '已产品化', validated_in_use: '已在使用中验证',
+  active: '活跃', candidate: '候选', deprecated: '已弃用', archived: '已归档',
+};
+
+function followInternalLink(event: React.MouseEvent<HTMLAnchorElement>, action?: () => void) {
+  if (!action || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  action();
+}
+
+export function KnowledgeInspector({ item, capture, reviewHref, canvasHref, onOpenReview, onOpenCanvas }: Props) {
   if (!item) {
     return (
       <aside className="knowledge-inspector is-empty" aria-label="知识对象详情">
@@ -62,13 +83,27 @@ export function KnowledgeInspector({ item }: Props) {
         <div><small>稳定对象 ID</small><code>{item.objectId}</code></div>
       </div>
 
+      <section className="knowledge-inspector__handoff">
+        <h3><Route aria-hidden="true" />来源到知识资产</h3>
+        <ol>
+          <li data-complete={Boolean(capture)}><span>01</span><div><strong>Capture</strong><small>{capture ? `${capture.captureId} · ${capture.sourceHash.slice(7, 19)}` : 'Legacy seed / 未绑定 Capture'}</small></div></li>
+          <li data-complete><span>02</span><div><strong>Candidate</strong><small>{item.objectId} · R{item.revision}</small></div></li>
+          <li><span>03</span><div><strong>Human Review</strong><small>{governanceLabels[item.promotionState] ?? item.promotionState}</small></div></li>
+          <li><span>04</span><div><strong>Canvas projection</strong><small>只读关系投影</small></div></li>
+        </ol>
+        <div>
+          {reviewHref ? <a href={reviewHref} onClick={event => followInternalLink(event, onOpenReview)}>进入 Review<GitPullRequestArrow aria-hidden="true" /></a> : null}
+          {canvasHref ? <a href={canvasHref} onClick={event => followInternalLink(event, onOpenCanvas)}>在 Canvas 定位<Network aria-hidden="true" /></a> : null}
+        </div>
+      </section>
+
       <section className="knowledge-inspector__section">
         <h3><ShieldCheck aria-hidden="true" />治理状态</h3>
         <dl className="knowledge-inspector__facts">
-          <div><dt>Promotion</dt><dd>{item.promotionState}</dd></div>
-          <div><dt>Evidence</dt><dd>{item.evidenceGrade}</dd></div>
-          <div><dt>Maturity</dt><dd>{item.assetMaturity}</dd></div>
-          <div><dt>Lifecycle</dt><dd>{item.legacy.status}</dd></div>
+          <div><dt>Promotion</dt><dd>{governanceLabels[item.promotionState] ?? item.promotionState}</dd></div>
+          <div><dt>Evidence</dt><dd>{governanceLabels[item.evidenceGrade] ?? item.evidenceGrade}</dd></div>
+          <div><dt>Maturity</dt><dd>{governanceLabels[item.assetMaturity] ?? item.assetMaturity}</dd></div>
+          <div><dt>Lifecycle</dt><dd>{governanceLabels[item.legacy.status] ?? item.legacy.status}</dd></div>
         </dl>
       </section>
 
@@ -76,7 +111,7 @@ export function KnowledgeInspector({ item }: Props) {
         <h3><CalendarClock aria-hidden="true" />来源与时态</h3>
         <dl className="knowledge-inspector__timeline">
           <div><dt>系统获知</dt><dd>{formatDisplayDateTime(item.observedAt)}</dd></div>
-          <div><dt>现实有效</dt><dd>{timeLabel(item.validTime.from)} — {timeLabel(item.validTime.until)}</dd></div>
+          <div><dt>现实有效</dt><dd>{timeLabel(item.validTime.from)} 至 {timeLabel(item.validTime.until)}</dd></div>
           <div><dt>来源定位</dt><dd>{item.source.locator}</dd></div>
         </dl>
         {sourceUrl ? (

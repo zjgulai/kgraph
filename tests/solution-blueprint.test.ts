@@ -30,6 +30,7 @@ import { POST as SCAFFOLD } from '../app/api/solutions/scaffold/route';
 import { GET as LIST_BLUEPRINTS, POST as CREATE_BLUEPRINT } from '../app/api/blueprints/route';
 import { GET as GET_BLUEPRINT, PATCH as UPDATE_BLUEPRINT } from '../app/api/blueprints/[blueprintId]/route';
 import { POST as COMPILE_BLUEPRINT } from '../app/api/blueprints/[blueprintId]/compile/route';
+import { POST as APPROVE_BLUEPRINT } from '../app/api/blueprints/[blueprintId]/approve/route';
 import type { ProductBlueprint } from '../../scripts/lib/blueprint-contract';
 import type { BlueprintCandidateRecord } from '../lib/server/blueprint-workspace-store';
 
@@ -66,6 +67,7 @@ afterEach(() => {
 function fixtureInput(evidenceIds: string[]): SolutionScaffoldInput {
   return {
     blueprintId: 'blueprint.knowledge-copilot',
+    taskId: 'task.knowledge-copilot',
     productName: 'Knowledge Copilot',
     goal: '把可审计知识转化为可复核的产品方案',
     problem: 'AI 产品方案缺少证据边界和可执行治理门',
@@ -80,10 +82,16 @@ function fixtureInput(evidenceIds: string[]): SolutionScaffoldInput {
     primaryOption: {
       title: '受控知识编译工作流',
       description: '以显式证据、硬门和人工决策生成候选 Blueprint',
+      assumptions: ['Owner 会复核关键主张'],
+      risks: ['证据可能过期'],
+      tradeoffs: ['以治理成本换可审计性'],
     },
     alternativeOption: {
       title: '文档模板工作流',
       description: '先以人工模板沉淀方案，再逐步接入结构化编译',
+      assumptions: ['团队持续维护模板'],
+      risks: ['跨方案一致性较弱'],
+      tradeoffs: ['以自动化程度换低门槛'],
     },
     hardGateCriterion: '所有关键主张必须能定位到当前知识 revision',
     commercialHypothesis: {
@@ -277,12 +285,17 @@ test('Solution and Blueprint routes preserve readonly, Owner write and CAS bound
     method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(updateBody),
   }), context);
   assert.equal(updateResponse.status, 200);
+  const updated = await updateResponse.clone().json() as BlueprintCandidateRecord;
   const staleResponse = await UPDATE_BLUEPRINT(new NextRequest(`http://localhost/api/blueprints/${created.blueprintId}`, {
     method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(updateBody),
   }), context);
   assert.equal(staleResponse.status, 409);
   const compileResponse = await COMPILE_BLUEPRINT(new NextRequest(`http://localhost/api/blueprints/${created.blueprintId}/compile`, {
-    method: 'POST',
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      baseRevision: updated.revision,
+      baseDocumentHash: updated.documentHash,
+      compiledAt: '2026-07-22T06:10:00Z',
+    }),
   }), context);
   assert.equal(compileResponse.status, 409);
   assert.equal((await compileResponse.json() as { code: string }).code, 'BLUEPRINT_NOT_COMPILE_READY');
@@ -292,7 +305,7 @@ test('Solution and Blueprint workspaces expose governance boundaries without fak
   const library = loadKnowledgeLibrary(packPath);
   const readonly = { mode: 'readonly', writable: false, tokenRequired: false } as const;
   const solutionHtml = renderToStaticMarkup(React.createElement(SolutionStudioWorkspace, {
-    library, writePolicy: readonly, onBlueprintSaved: () => undefined,
+    library, writePolicy: readonly, chains: [], onTaskSelected: () => undefined, onBlueprintSaved: () => undefined,
   }));
   const blueprintHtml = renderToStaticMarkup(React.createElement(BlueprintWorkspace, { writePolicy: readonly }));
   assert.match(solutionHtml, /Solution Studio|从证据到候选方案/u);
@@ -302,10 +315,51 @@ test('Solution and Blueprint workspaces expose governance boundaries without fak
   assert.doesNotMatch(blueprintHtml, /保存 revision|编译 Genome|下载 Genome/u);
 
   const workspaceSource = readFileSync(resolve(root, 'components/workspace/KnowledgeWorkspace.tsx'), 'utf8');
+  const shellSource = readFileSync(resolve(root, 'components/workbench/WorkbenchShell.tsx'), 'utf8');
   const blueprintSource = readFileSync(resolve(root, 'components/workspace/BlueprintWorkspace.tsx'), 'utf8');
-  assert.match(workspaceSource, /data-active=\{view === 'solutions'\}/u);
-  assert.match(workspaceSource, /data-active=\{view === 'blueprints'\}/u);
+  assert.match(workspaceSource, /view === 'solutions'/u);
+  assert.match(workspaceSource, /view === 'blueprints'/u);
+  assert.match(shellSource, /views: \['solutions', 'blueprints', 'artifacts'\]/u);
   assert.doesNotMatch(workspaceSource, /\{ label: 'Solutions'.*规划中|\{ label: 'Blueprints'.*规划中/u);
   assert.match(blueprintSource, /record\.blueprint\.status !== 'approved' \|\| !record\.blueprint\.execution/u);
   assert.match(blueprintSource, /aria-label="已治理 Blueprint 状态"/u);
+});
+
+test('Blueprint approval route preserves readonly and explicit Owner mutation boundaries', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'doccanvas-blueprint-approval-api-'));
+  process.env.DOCCANVAS_ROOT = workspace;
+  process.env.DOCCANVAS_BLUEPRINT_STORE_PATH = join(workspace, 'blueprint-candidates');
+  const approved = parseYaml(readFileSync(approvedFixturePath, 'utf8')) as ProductBlueprint;
+  const review: ProductBlueprint = {
+    ...approved,
+    status: 'review',
+    decision: { ...approved.decision, decision_status: 'pending_human', primary_option_id: null },
+  };
+  const created = createBlueprintCandidate({
+    blueprint: review, actor: 'owner.test', mutationId: 'approval.api.create', mutatedAt: '2026-07-22T06:00:00Z',
+  });
+  const context = { params: Promise.resolve({ blueprintId: created.blueprintId }) };
+  const body = JSON.stringify({
+    baseRevision: created.revision,
+    baseDocumentHash: created.documentHash,
+    primaryOptionId: review.options[0]!.option_id,
+    rationale: '人工复核后批准。',
+  });
+
+  process.env.DOCCANVAS_WRITE_MODE = 'readonly';
+  mutableEnv.NODE_ENV = 'production';
+  const denied = await APPROVE_BLUEPRINT(new NextRequest(`https://example.test/api/blueprints/${created.blueprintId}/approve`, {
+    method: 'POST', headers: { origin: 'https://example.test', 'content-type': 'application/json' }, body,
+  }), context);
+  assert.equal(denied.status, 403);
+
+  delete process.env.DOCCANVAS_WRITE_MODE;
+  mutableEnv.NODE_ENV = 'development';
+  const accepted = await APPROVE_BLUEPRINT(new NextRequest(`http://localhost/api/blueprints/${created.blueprintId}/approve`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body,
+  }), context);
+  assert.equal(accepted.status, 200);
+  const record = await accepted.json() as BlueprintCandidateRecord;
+  assert.equal(record.blueprint.status, 'approved');
+  assert.equal(record.revision, 2);
 });

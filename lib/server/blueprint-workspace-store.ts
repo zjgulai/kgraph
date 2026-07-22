@@ -9,9 +9,11 @@ import {
   BlueprintStoreError,
   createBlueprintRevision,
   listBlueprintRevisions,
+  readBlueprintRevision,
   readCurrentBlueprint,
   updateBlueprintRevision,
 } from '../../../scripts/lib/blueprint-store';
+import { buildBlueprintRevisionComparison, type BlueprintRevisionComparison } from '../product/blueprint-diff';
 import { projectPath } from './project-root';
 
 const BLUEPRINT_ID_PATTERN = /^blueprint\.[a-zA-Z0-9._-]+$/u;
@@ -149,6 +151,36 @@ export function loadBlueprintCandidate(options: {
   return record(storeDir, options.blueprintId);
 }
 
+export function compareBlueprintCandidateRevisions(options: {
+  storeDir?: string;
+  blueprintId: string;
+  fromRevision: number;
+  toRevision: number;
+  affectedArtifactKeys?: string[];
+}): BlueprintRevisionComparison {
+  const storeDir = options.storeDir ?? blueprintStorePath();
+  if (!BLUEPRINT_ID_PATTERN.test(options.blueprintId)) fail('BLUEPRINT_ID_INVALID', options.blueprintId);
+  try {
+    const from = readBlueprintRevision(storeDir, options.blueprintId, options.fromRevision);
+    const to = readBlueprintRevision(storeDir, options.blueprintId, options.toRevision);
+    return buildBlueprintRevisionComparison({
+      from: {
+        revision: from.pointer.revision,
+        documentHash: from.pointer.document_hash,
+        blueprint: from.blueprint,
+      },
+      to: {
+        revision: to.pointer.revision,
+        documentHash: to.pointer.document_hash,
+        blueprint: to.blueprint,
+      },
+      affectedArtifactKeys: options.affectedArtifactKeys,
+    });
+  } catch (error) {
+    translateStoreError(error);
+  }
+}
+
 export function createBlueprintCandidate(options: {
   storeDir?: string;
   blueprint: unknown;
@@ -198,4 +230,60 @@ export function updateBlueprintCandidate(options: {
   } catch (error) {
     translateStoreError(error);
   }
+}
+
+export function approveBlueprintCandidate(options: {
+  storeDir?: string;
+  blueprintId: string;
+  baseRevision: number;
+  baseDocumentHash: string;
+  primaryOptionId: string;
+  rationale: string;
+} & MutationMetadata): BlueprintCandidateRecord {
+  const current = loadBlueprintCandidate({ storeDir: options.storeDir, blueprintId: options.blueprintId });
+  if (current.revision !== options.baseRevision || current.documentHash !== options.baseDocumentHash) {
+    fail('BLUEPRINT_CAS_CONFLICT', `current=${current.revision}/${current.documentHash}`, 409);
+  }
+  if (current.blueprint.status !== 'review') {
+    fail('BLUEPRINT_APPROVAL_STATE_INVALID', `status=${current.blueprint.status}`, 409);
+  }
+  const primary = current.blueprint.options.find(option => option.option_id === options.primaryOptionId);
+  if (!primary) fail('BLUEPRINT_PRIMARY_OPTION_NOT_FOUND', options.primaryOptionId);
+  if (primary.hard_gate_result !== 'pass') {
+    fail('BLUEPRINT_PRIMARY_OPTION_GATE_PENDING', `${options.primaryOptionId}=${primary.hard_gate_result}`, 409);
+  }
+  if (!current.blueprint.execution) fail('BLUEPRINT_EXECUTION_REQUIRED', 'approval requires execution spec', 409);
+  if (current.blueprint.constraints.hard_gates.some(gate => gate.result !== 'pass' && gate.result !== 'not_applicable')) {
+    fail('BLUEPRINT_HARD_GATE_PENDING', 'all hard gates must pass before approval', 409);
+  }
+  const rationale = options.rationale.trim();
+  if (!rationale) fail('BLUEPRINT_APPROVAL_RATIONALE_REQUIRED', 'rationale 不能为空');
+  const blueprint: ProductBlueprint = {
+    ...structuredClone(current.blueprint),
+    version: current.revision + 1,
+    status: 'approved',
+    decision: {
+      ...current.blueprint.decision,
+      primary_option_id: primary.option_id,
+      alternative_option_ids: current.blueprint.options.filter(option => option.option_id !== primary.option_id).map(option => option.option_id),
+      decision_status: 'approved',
+      decided_by: options.actor,
+      decided_at: options.mutatedAt,
+      rationale,
+    },
+    human_gates: current.blueprint.human_gates.map(gate => (
+      gate.required_before === 'blueprint_approval' || gate.required_before === 'genome_compile'
+        ? { ...gate, status: 'approved' as const }
+        : gate
+    )),
+  };
+  return updateBlueprintCandidate({
+    storeDir: options.storeDir,
+    blueprint,
+    baseRevision: options.baseRevision,
+    baseDocumentHash: options.baseDocumentHash,
+    actor: options.actor,
+    mutationId: options.mutationId,
+    mutatedAt: options.mutatedAt,
+  });
 }

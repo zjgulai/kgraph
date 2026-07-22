@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { BookOpenText, Check, Filter, SearchX } from 'lucide-react';
+import { Field } from '@/components/ui/Field';
 import type {
   KnowledgeLibraryFilters,
   KnowledgeLibraryItem,
@@ -12,6 +13,7 @@ interface Props {
   items: KnowledgeLibraryItem[];
   filters: KnowledgeLibraryFilters;
   selectedId: string | null;
+  hrefForObject: (objectId: string) => string;
   onFiltersChange: (next: KnowledgeLibraryFilters) => void;
   onSelect: (objectId: string) => void;
 }
@@ -22,23 +24,24 @@ function uniqueValues(items: KnowledgeLibraryItem[], select: (item: KnowledgeLib
 
 function FilterSelect({
   label,
+  name,
   value,
   options,
   onChange,
 }: {
   label: string;
+  name: string;
   value: string;
   options: string[];
   onChange: (value: string) => void;
 }) {
   return (
-    <label>
-      <span>{label}</span>
-      <select value={value} onChange={event => onChange(event.target.value)} aria-label={label}>
+    <Field label={label} controlId={name} className="knowledge-library__field">
+      <select name={name} value={value} onChange={event => onChange(event.target.value)} aria-label={label}>
         <option value="">全部</option>
         {options.map(option => <option key={option} value={option}>{option}</option>)}
       </select>
-    </label>
+    </Field>
   );
 }
 
@@ -47,6 +50,7 @@ export function KnowledgeLibrary({
   items,
   filters,
   selectedId,
+  hrefForObject,
   onFiltersChange,
   onSelect,
 }: Props) {
@@ -67,11 +71,14 @@ export function KnowledgeLibrary({
 
       <div className="knowledge-library__filters" aria-label="知识对象筛选">
         <span className="knowledge-library__filter-label"><Filter aria-hidden="true" />组合筛选</span>
-        <FilterSelect label="领域" value={filters.domain} options={domains} onChange={value => update('domain', value)} />
-        <FilterSelect label="知识形态" value={filters.knowledgeForm} options={uniqueValues(allItems, item => item.knowledgeForm)} onChange={value => update('knowledgeForm', value)} />
-        <FilterSelect label="证据等级" value={filters.evidenceGrade} options={uniqueValues(allItems, item => item.evidenceGrade)} onChange={value => update('evidenceGrade', value)} />
-        <FilterSelect label="资产成熟度" value={filters.assetMaturity} options={uniqueValues(allItems, item => item.assetMaturity)} onChange={value => update('assetMaturity', value)} />
-        <FilterSelect label="生命周期" value={filters.lifecycle} options={uniqueValues(allItems, item => item.legacy.status)} onChange={value => update('lifecycle', value)} />
+        <Field label="搜索" controlId="knowledge-query" className="knowledge-library__query">
+          <input id="knowledge-query" name="knowledge-query" type="search" aria-label="搜索知识对象" value={filters.query} onChange={event => update('query', event.target.value)} placeholder="标题、摘要、领域或 ID…" autoComplete="off" />
+        </Field>
+        <FilterSelect name="knowledge-domain" label="领域" value={filters.domain} options={domains} onChange={value => update('domain', value)} />
+        <FilterSelect name="knowledge-form" label="知识形态" value={filters.knowledgeForm} options={uniqueValues(allItems, item => item.knowledgeForm)} onChange={value => update('knowledgeForm', value)} />
+        <FilterSelect name="knowledge-evidence" label="证据等级" value={filters.evidenceGrade} options={uniqueValues(allItems, item => item.evidenceGrade)} onChange={value => update('evidenceGrade', value)} />
+        <FilterSelect name="knowledge-maturity" label="资产成熟度" value={filters.assetMaturity} options={uniqueValues(allItems, item => item.assetMaturity)} onChange={value => update('assetMaturity', value)} />
+        <FilterSelect name="knowledge-lifecycle" label="生命周期" value={filters.lifecycle} options={uniqueValues(allItems, item => item.legacy.status)} onChange={value => update('lifecycle', value)} />
       </div>
 
       {items.length === 0 ? (
@@ -86,12 +93,16 @@ export function KnowledgeLibrary({
             const selected = item.objectId === selectedId;
             return (
               <div key={item.objectId} role="listitem" className="knowledge-row-item">
-                <button
-                  type="button"
+                <a
+                  href={hrefForObject(item.objectId)}
                   className="knowledge-row"
                   data-selected={selected ? 'true' : 'false'}
-                  aria-pressed={selected}
-                  onClick={() => onSelect(item.objectId)}
+                  aria-current={selected ? 'true' : undefined}
+                  onClick={event => {
+                    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                    event.preventDefault();
+                    onSelect(item.objectId);
+                  }}
                 >
                   <span className="knowledge-row__index">{String(index + 1).padStart(2, '0')}</span>
                   <span className="knowledge-row__body">
@@ -109,7 +120,7 @@ export function KnowledgeLibrary({
                     <span className="is-review">人工复核 · {item.reviewReasons.length}</span>
                   </span>
                   <span className="knowledge-row__selected" aria-hidden="true"><Check /></span>
-                </button>
+                </a>
               </div>
             );
           })}

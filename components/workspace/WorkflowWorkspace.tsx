@@ -21,7 +21,8 @@ export function WorkflowWorkspace({ projection }: Props) {
           {index > 0 ? <i aria-hidden="true" /> : null}
           <article data-state={stage.state}>
             <header><span>{String(index + 1).padStart(2, '0')}</span><Icon aria-hidden="true" /></header>
-            <small>{stage.state}</small><h2>{stage.label}</h2><strong>{stage.evidenceCount}</strong><p>{stage.evidence}</p>
+            <small>{stage.state} · 新鲜度 {stage.freshness}</small><h2>{stage.label}</h2><strong>{stage.evidenceCount}</strong><p>{stage.evidence}</p>
+            <code>{stage.evidenceIds[0] ?? 'evidence unavailable'}</code>
             {stage.humanGate ? <footer><GitBranch aria-hidden="true" />{stage.humanGate}</footer> : <footer><Check aria-hidden="true" />evidence-bound</footer>}
           </article>
         </React.Fragment>;

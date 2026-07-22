@@ -253,6 +253,10 @@ test('review workspace exposes candidate governance without canonical actions', 
   assert.match(source, /window\.confirm/u);
   assert.match(source, /splitKnowledgeBody/u);
   assert.match(source, /Legacy snapshot/u);
+  assert.match(source, /parseReviewDraft/u);
+  assert.match(source, /mergeReviewConflict/u);
+  assert.match(source, /CAS CONFLICT/u);
+  assert.match(source, /Legacy migration queue/u);
   const ownerSource = readFileSync(resolve(root, 'components/canvas/OwnerSessionControl.tsx'), 'utf8');
   assert.match(ownerSource, /autoComplete="username"/u);
   assert.match(ownerSource, /autoComplete="current-password"/u);

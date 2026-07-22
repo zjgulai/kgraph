@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process';
 import { cpSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
@@ -22,9 +23,16 @@ export default function globalSetup() {
     'data/transactions',
     'data/revision-audit',
     'data/assets/portraits',
+    'data/blueprint-candidates',
+    'data/blueprint-artifacts',
     'data/secrets',
   ]) mkdirSync(join(root, directory), { recursive: true, mode: 0o750 });
   writeFileSync(join(root, 'data/canvases/manifest.json'), '{"canvases":[]}\n', { mode: 0o640 });
   writeFileSync(join(root, 'data/secrets/owner-token'), 'playwright-owner-token\n', { mode: 0o600 });
   writeFileSync(join(root, 'data/secrets/session-secret'), 'playwright-session-secret-with-at-least-32-bytes\n', { mode: 0o600 });
+
+  execFileSync(join(project, 'node_modules/.bin/tsx'), [join(project, 'tests/e2e/seed-product-chain.ts'), root], {
+    cwd: project,
+    stdio: 'inherit',
+  });
 }

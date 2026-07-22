@@ -7,8 +7,9 @@ import {
 import type { KnowledgeLibraryProjection } from '../knowledge/library-types';
 
 const DateTimeSchema = z.string().datetime({ offset: true });
-const SolutionScaffoldInputSchema = z.object({
+export const SolutionScaffoldInputSchema = z.object({
   blueprintId: z.string().regex(/^blueprint\.[a-zA-Z0-9._-]+$/),
+  taskId: z.string().regex(/^task\.[a-zA-Z0-9._-]+$/),
   productName: z.string().trim().min(1),
   goal: z.string().trim().min(1),
   problem: z.string().trim().min(1),
@@ -26,10 +27,16 @@ const SolutionScaffoldInputSchema = z.object({
   primaryOption: z.object({
     title: z.string().trim().min(1),
     description: z.string().trim().min(1),
+    assumptions: z.array(z.string().trim().min(1)),
+    risks: z.array(z.string().trim().min(1)),
+    tradeoffs: z.array(z.string().trim().min(1)),
   }).strict(),
   alternativeOption: z.object({
     title: z.string().trim().min(1),
     description: z.string().trim().min(1),
+    assumptions: z.array(z.string().trim().min(1)),
+    risks: z.array(z.string().trim().min(1)),
+    tradeoffs: z.array(z.string().trim().min(1)),
   }).strict(),
   hardGateCriterion: z.string().trim().min(1),
   commercialHypothesis: z.object({
@@ -42,6 +49,21 @@ const SolutionScaffoldInputSchema = z.object({
 }).strict();
 
 export type SolutionScaffoldInput = z.infer<typeof SolutionScaffoldInputSchema>;
+
+export type SolutionContentOrigin = 'user_input' | 'knowledge_evidence' | 'deterministic_rule' | 'provider_candidate';
+
+export interface SolutionLineageItem {
+  id: string;
+  label: string;
+  origin: SolutionContentOrigin;
+  sourceRefs: string[];
+}
+
+export interface SolutionScaffoldResult {
+  blueprint: ProductBlueprint;
+  lineage: SolutionLineageItem[];
+  providerCall: false;
+}
 
 function fail(code: string, message: string): never {
   throw new Error(`${code}: ${message}`);
@@ -69,15 +91,11 @@ export function buildKnowledgeRevisionFingerprint(library: KnowledgeLibraryProje
   return `knowledge-set:sha256:${digest}`;
 }
 
-function taskId(blueprintId: string): string {
-  return `task.${blueprintId.replace(/^blueprint\./, '')}`;
-}
-
-export function buildBlueprintScaffold(
+export function buildSolutionScaffold(
   input: SolutionScaffoldInput,
   library: KnowledgeLibraryProjection,
   createdAt: string,
-): ProductBlueprint {
+): SolutionScaffoldResult {
   const parsed = SolutionScaffoldInputSchema.safeParse(input);
   if (!parsed.success) {
     fail('SOLUTION_INPUT_INVALID', parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '));
@@ -99,7 +117,7 @@ export function buildBlueprintScaffold(
     base_knowledge_revision: buildKnowledgeRevisionFingerprint(library),
     created_at: createdAt,
     product_task: {
-      task_id: taskId(parsed.data.blueprintId),
+      task_id: parsed.data.taskId,
       product_name: parsed.data.productName,
       goal: parsed.data.goal,
       problem: parsed.data.problem,
@@ -133,18 +151,18 @@ export function buildBlueprintScaffold(
       description: parsed.data.primaryOption.description,
       hard_gate_result: 'pending',
       score: null,
-      assumptions: ['待人工验证证据充分性与约束匹配'],
-      risks: ['当前仅为确定性脚手架，未执行外部调研或技术验证'],
-      tradeoffs: ['优先保持可审计性与人工治理门'],
+      assumptions: parsed.data.primaryOption.assumptions,
+      risks: parsed.data.primaryOption.risks,
+      tradeoffs: parsed.data.primaryOption.tradeoffs,
     }, {
       option_id: 'option.conservative-alternative',
       title: parsed.data.alternativeOption.title,
       description: parsed.data.alternativeOption.description,
       hard_gate_result: 'pending',
       score: null,
-      assumptions: ['待人工评估替代方案的交付成本'],
-      risks: ['可能降低自动化程度或延长交付周期'],
-      tradeoffs: ['用较低复杂度换取更高可控性'],
+      assumptions: parsed.data.alternativeOption.assumptions,
+      risks: parsed.data.alternativeOption.risks,
+      tradeoffs: parsed.data.alternativeOption.tradeoffs,
     }],
     decision: {
       primary_option_id: null,
@@ -202,5 +220,36 @@ export function buildBlueprintScaffold(
   if (!validation.success || !validation.blueprint) {
     fail('SOLUTION_BLUEPRINT_INVALID', validation.errors.map(error => `${error.code} ${error.path}: ${error.message}`).join('; '));
   }
-  return validation.blueprint;
+  return {
+    blueprint: validation.blueprint,
+    providerCall: false,
+    lineage: [
+      {
+        id: 'lineage.product-task',
+        label: 'Product Task 与产品边界',
+        origin: 'user_input',
+        sourceRefs: [parsed.data.taskId],
+      },
+      {
+        id: 'lineage.evidence',
+        label: '当前 Knowledge revision 证据集',
+        origin: 'knowledge_evidence',
+        sourceRefs: evidenceIds,
+      },
+      {
+        id: 'lineage.structure',
+        label: 'Blueprint v1.1 结构、硬门与候选状态',
+        origin: 'deterministic_rule',
+        sourceRefs: ['ai-product-factory-blueprint-v1.1'],
+      },
+    ],
+  };
+}
+
+export function buildBlueprintScaffold(
+  input: SolutionScaffoldInput,
+  library: KnowledgeLibraryProjection,
+  createdAt: string,
+): ProductBlueprint {
+  return buildSolutionScaffold(input, library, createdAt).blueprint;
 }

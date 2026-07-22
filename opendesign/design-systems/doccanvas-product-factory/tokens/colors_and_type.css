@@ -28,6 +28,23 @@
   --factory-governance-surface: color-mix(in srgb, var(--factory-copper) 10%, var(--factory-surface));
   --factory-engineering-surface: color-mix(in srgb, var(--factory-slate) 9%, var(--factory-surface));
 
+  /* Design System v2 interaction roles. */
+  --factory-control-surface: var(--factory-surface-raised);
+  --factory-control-hover: color-mix(in srgb, var(--factory-green) 7%, var(--factory-surface-raised));
+  --factory-control-active: color-mix(in srgb, var(--factory-green) 12%, var(--factory-surface));
+  --factory-control-disabled: color-mix(in srgb, var(--factory-muted) 8%, var(--factory-surface));
+  --factory-control-border: var(--factory-border);
+  --factory-focus-ring: var(--factory-green);
+  --factory-overlay-backdrop: color-mix(in srgb, var(--factory-ink) 36%, transparent);
+  --factory-status-success: var(--factory-green);
+  --factory-status-success-surface: color-mix(in srgb, var(--factory-green) 10%, var(--factory-surface));
+  --factory-status-warning: var(--factory-copper);
+  --factory-status-warning-surface: var(--factory-governance-surface);
+  --factory-status-danger: var(--factory-danger);
+  --factory-status-danger-surface: color-mix(in srgb, var(--factory-danger) 9%, var(--factory-surface));
+  --factory-status-info: var(--factory-slate);
+  --factory-status-info-surface: var(--factory-engineering-surface);
+
   /* Stable local font stacks; no runtime font request. */
   --factory-font-display: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
   --factory-font-body: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
@@ -57,11 +74,18 @@
   --factory-space-7: 3rem;
   --factory-radius-shell: 0.5rem;
   --factory-radius-room: 0.375rem;
-  --factory-radius-control: 0.375rem;
+  --factory-radius-control: 0.5rem;
+  --factory-radius-panel: 0.75rem;
+  --factory-radius-overlay: 1rem;
   --factory-depth-wall: none;
   --factory-depth-foreground: 0 8px 24px rgba(29, 36, 31, 0.10);
   --factory-depth-overlay: 0 16px 44px rgba(29, 36, 31, 0.16);
   --factory-wall-thickness: 0.625rem;
+  --factory-layer-content: 1;
+  --factory-layer-sticky: 20;
+  --factory-layer-navigation: 30;
+  --factory-layer-drawer: 80;
+  --factory-layer-overlay: 100;
 
   /* Motion and pipelines. */
   --factory-motion-fast: 140ms;

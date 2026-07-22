@@ -9,6 +9,11 @@ export interface CompiledProductViews {
     blueprintDocumentHash: string;
     genomeHash: string;
     compiledAt: string;
+    productTaskId: string;
+    baseKnowledgeRevision: string;
+    evidenceIds: string[];
+    compilerVersion: string;
+    replayStatus: 'replayable' | 'legacy_unavailable';
     productionStatus: 'unchanged';
   };
   prd: {
@@ -67,6 +72,11 @@ export function compileProductViews(
       blueprintDocumentHash: manifest.blueprintDocumentHash,
       genomeHash: manifest.genomeHash,
       compiledAt: manifest.compiledAt,
+      productTaskId: manifest.input?.productTaskId ?? genome.genome.source_task_id ?? 'legacy_unavailable',
+      baseKnowledgeRevision: manifest.input?.baseKnowledgeRevision ?? genome.genome.base_knowledge_revision ?? 'legacy_unavailable',
+      evidenceIds: manifest.input?.evidenceIds ?? [],
+      compilerVersion: manifest.input?.compilerVersion ?? 'legacy_unavailable',
+      replayStatus: manifest.replay?.status ?? 'legacy_unavailable',
       productionStatus: manifest.productionStatus,
     },
     prd: {

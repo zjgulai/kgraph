@@ -1,16 +1,44 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
-import { FileInput, Fingerprint, Inbox, Link2, LoaderCircle, ShieldCheck, Sparkles } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { FileInput, Fingerprint, Inbox, Link2, LoaderCircle, RotateCcw, ShieldCheck, Sparkles, TriangleAlert } from 'lucide-react';
 import { OwnerSessionControl } from '@/components/canvas/OwnerSessionControl';
 import type { KnowledgeLibraryItem } from '@/lib/knowledge/library-types';
 import type { CaptureSummary } from '@/lib/server/knowledge-capture-store';
 import type { WritePolicy } from '@/lib/server/write-guard';
+import {
+  CAPTURE_DRAFT_STORAGE_KEY,
+  parseCaptureDraft,
+  serializeCaptureDraft,
+  type CaptureWorkspaceDraft,
+} from '@/lib/knowledge/workspace-drafts';
 
 interface Props {
   captures: CaptureSummary[];
   writePolicy: WritePolicy;
   onCandidateCreated: (item: KnowledgeLibraryItem, capture: CaptureSummary) => void;
+  onOpenCandidate?: (objectId: string, captureId: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+}
+
+const EMPTY_DRAFT: CaptureWorkspaceDraft = {
+  sourceKind: 'url', sourceUri: '', file: null, content: '', title: '', domainRef: 'ai-product.capture',
+};
+
+function normalizeSourceUri(value: string): string {
+  try {
+    const url = new URL(value.trim());
+    url.hash = '';
+    return url.toString().replace(/\/$/u, '');
+  } catch {
+    return value.trim().replace(/\/$/u, '');
+  }
+}
+
+async function sourceDigest(content: string): Promise<string | null> {
+  if (!content || !globalThis.crypto?.subtle) return null;
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
+  return `sha256:${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')}`;
 }
 
 function useMobileCapture(): boolean {
@@ -25,7 +53,7 @@ function useMobileCapture(): boolean {
   return isMobile;
 }
 
-export function CaptureWorkspace({ captures: initialCaptures, writePolicy, onCandidateCreated }: Props) {
+export function CaptureWorkspace({ captures: initialCaptures, writePolicy, onCandidateCreated, onOpenCandidate, onDirtyChange }: Props) {
   const [captures, setCaptures] = useState(initialCaptures);
   const [ownerAuthenticated, setOwnerAuthenticated] = useState(writePolicy.mode === 'dev');
   const [sourceKind, setSourceKind] = useState<'url' | 'file'>('url');
@@ -36,8 +64,75 @@ export function CaptureWorkspace({ captures: initialCaptures, writePolicy, onCan
   const [domainRef, setDomainRef] = useState('ai-product.capture');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  const [hydrated, setHydrated] = useState(false);
+  const [contentHash, setContentHash] = useState<string | null>(null);
   const isMobile = useMobileCapture();
   const canWrite = writePolicy.writable && ownerAuthenticated && !isMobile;
+  const draft = useMemo<CaptureWorkspaceDraft>(() => ({ sourceKind, sourceUri, file, content, title, domainRef }), [content, domainRef, file, sourceKind, sourceUri, title]);
+  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(EMPTY_DRAFT), [draft]);
+  const duplicateCaptures = useMemo(() => {
+    const normalizedUri = sourceKind === 'url' ? normalizeSourceUri(sourceUri) : '';
+    return captures.filter(capture => (
+      (Boolean(contentHash) && capture.sourceHash === contentHash)
+      || (Boolean(normalizedUri) && capture.sourceKind === 'url' && normalizeSourceUri(capture.sourceUri) === normalizedUri)
+    ));
+  }, [captures, contentHash, sourceKind, sourceUri]);
+  const sourcePreview = sourceKind === 'url' ? content : file?.content ?? '';
+
+  useEffect(() => {
+    const restored = parseCaptureDraft(window.localStorage.getItem(CAPTURE_DRAFT_STORAGE_KEY));
+    if (restored) {
+      setSourceKind(restored.sourceKind);
+      setSourceUri(restored.sourceUri);
+      setFile(restored.file);
+      setContent(restored.content);
+      setTitle(restored.title);
+      setDomainRef(restored.domainRef);
+      setStatus('已恢复上次未提交的 Capture 草稿。');
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const timer = window.setTimeout(() => {
+      try {
+        if (dirty) window.localStorage.setItem(CAPTURE_DRAFT_STORAGE_KEY, serializeCaptureDraft(draft));
+        else window.localStorage.removeItem(CAPTURE_DRAFT_STORAGE_KEY);
+      } catch {
+        setStatus('草稿超过浏览器本地存储容量；请缩短正文后再继续。');
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [draft, dirty, hydrated]);
+
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const sourceContent = sourceKind === 'url' ? content : file?.content ?? '';
+    void sourceDigest(sourceContent).then(hash => { if (!cancelled) setContentHash(hash); });
+    return () => { cancelled = true; };
+  }, [content, file?.content, sourceKind]);
+
+  const discardDraft = () => {
+    setSourceKind(EMPTY_DRAFT.sourceKind);
+    setSourceUri('');
+    setFile(null);
+    setContent('');
+    setTitle('');
+    setDomainRef(EMPTY_DRAFT.domainRef);
+    window.localStorage.removeItem(CAPTURE_DRAFT_STORAGE_KEY);
+    onDirtyChange?.(false);
+    setStatus('本地 Capture 草稿已放弃。');
+  };
 
   const submit = useCallback(async (event: React.FormEvent) => {
     event.preventDefault();
@@ -65,17 +160,19 @@ export function CaptureWorkspace({ captures: initialCaptures, writePolicy, onCan
       const payload = await response.json() as { capture?: CaptureSummary; item?: KnowledgeLibraryItem; error?: string };
       if (!response.ok || !payload.capture || !payload.item) throw new Error(payload.error || 'Capture 创建失败。');
       setCaptures(current => [payload.capture!, ...current.filter(item => item.captureId !== payload.capture!.captureId)]);
-      onCandidateCreated(payload.item, payload.capture);
+      window.localStorage.removeItem(CAPTURE_DRAFT_STORAGE_KEY);
       setTitle('');
+      setSourceUri('');
       setContent('');
       setFile(null);
-      setStatus('已保存不可变来源快照并生成 extractive candidate；请转入 Review 人工复核。');
+      onDirtyChange?.(false);
+      onCandidateCreated(payload.item, payload.capture);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Capture 创建失败。');
     } finally {
       setBusy(false);
     }
-  }, [busy, canWrite, content, domainRef, file, onCandidateCreated, sourceKind, sourceUri, title]);
+  }, [busy, canWrite, content, domainRef, file, onCandidateCreated, onDirtyChange, sourceKind, sourceUri, title]);
 
   return (
     <section className="capture-workspace" aria-labelledby="capture-title">
@@ -102,13 +199,16 @@ export function CaptureWorkspace({ captures: initialCaptures, writePolicy, onCan
             </div>
             {sourceKind === 'url' ? (
               <>
-                <label>来源 URL<input type="url" required value={sourceUri} onChange={event => setSourceUri(event.target.value)} placeholder="https://…" /></label>
-                <label>用户提供正文<textarea required rows={11} value={content} onChange={event => setContent(event.target.value)} placeholder="粘贴正文；服务器不会打开这个 URL。" /></label>
+                <label htmlFor="capture-source-uri">来源 URL</label>
+                <input id="capture-source-uri" name="sourceUri" type="url" autoComplete="url" required value={sourceUri} onChange={event => setSourceUri(event.target.value)} placeholder="https://…" />
+                <label htmlFor="capture-source-content">用户提供正文</label>
+                <textarea id="capture-source-content" name="content" required rows={11} value={content} onChange={event => setContent(event.target.value)} placeholder="粘贴正文；服务器不会打开这个 URL。" />
               </>
             ) : (
               <label className="capture-workspace__file">本地文本文件
                 <input
                   type="file"
+                  name="sourceFile"
                   required
                   accept=".md,.markdown,.txt"
                   onChange={event => {
@@ -129,8 +229,28 @@ export function CaptureWorkspace({ captures: initialCaptures, writePolicy, onCan
                 <span>{file ? `${file.fileName} · ${file.content.length} chars` : '最大 1 MiB；只保存文本快照。'}</span>
               </label>
             )}
-            <label>候选标题（可留空）<input value={title} onChange={event => setTitle(event.target.value)} maxLength={160} /></label>
-            <label>领域引用<input required value={domainRef} onChange={event => setDomainRef(event.target.value)} /></label>
+            <label htmlFor="capture-title-input">候选标题（可留空）</label>
+            <input id="capture-title-input" name="title" autoComplete="off" value={title} onChange={event => setTitle(event.target.value)} maxLength={160} />
+            <label htmlFor="capture-domain-ref">领域引用</label>
+            <input id="capture-domain-ref" name="domainRef" autoComplete="off" required value={domainRef} onChange={event => setDomainRef(event.target.value)} />
+            {sourcePreview ? (
+              <details className="capture-workspace__preview">
+                <summary>来源快照预览 · {sourcePreview.length} chars</summary>
+                <pre>{sourcePreview.slice(0, 2400)}{sourcePreview.length > 2400 ? '\n…预览已截断，提交时仍保存完整文本。' : ''}</pre>
+              </details>
+            ) : null}
+            {duplicateCaptures.length > 0 ? (
+              <section className="capture-workspace__duplicate" aria-live="polite">
+                <TriangleAlert aria-hidden="true" />
+                <div><strong>发现 {duplicateCaptures.length} 条可能重复的来源</strong><p>内容 checksum 或规范化 URL 与已有 Capture 相同。优先打开已有候选，避免重复审阅。</p></div>
+                {duplicateCaptures.slice(0, 3).map(duplicate => (
+                  <button key={duplicate.captureId} type="button" onClick={() => onOpenCandidate?.(duplicate.objectId, duplicate.captureId)}>
+                    打开 {duplicate.title}
+                  </button>
+                ))}
+              </section>
+            ) : null}
+            {dirty ? <button className="capture-workspace__discard" type="button" onClick={discardDraft}><RotateCcw aria-hidden="true" />放弃草稿</button> : null}
             <button className="capture-workspace__submit" type="submit" disabled={busy}>
               {busy ? <LoaderCircle aria-hidden="true" /> : <Fingerprint aria-hidden="true" />}{busy ? '生成中…' : '上传并生成候选'}
             </button>
@@ -146,10 +266,10 @@ export function CaptureWorkspace({ captures: initialCaptures, writePolicy, onCan
           ) : (
             <ol>
               {captures.map(capture => (
-                <li key={capture.captureId}>
+                <li key={capture.captureId} data-active-duplicate={duplicateCaptures.some(item => item.captureId === capture.captureId)}>
                   <span>{capture.sourceKind === 'url' ? <Link2 aria-hidden="true" /> : <FileInput aria-hidden="true" />}</span>
                   <div><small>{capture.sourceKind} · {capture.generationMode}</small><strong>{capture.title}</strong><p>{capture.sourceUri}</p></div>
-                  <dl><div><dt>checksum</dt><dd>{capture.sourceHash.slice(7, 19)}</dd></div><div><dt>handoff</dt><dd>Review</dd></div></dl>
+                  <dl><div><dt>checksum</dt><dd>{capture.sourceHash.slice(7, 19)}</dd></div><div><dt>handoff</dt><dd><button type="button" onClick={() => onOpenCandidate?.(capture.objectId, capture.captureId)}>打开候选</button></dd></div></dl>
                 </li>
               ))}
             </ol>

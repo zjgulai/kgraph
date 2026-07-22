@@ -29,6 +29,13 @@ import type {
 import type { WritePolicy } from '@/lib/server/write-guard';
 import { formatDisplayDateTime } from '@/lib/shared/display-format';
 import { mergeKnowledgeBody, splitKnowledgeBody } from '@/lib/knowledge/legacy-snapshot';
+import {
+  mergeReviewConflict,
+  parseReviewDraft,
+  reviewDraftStorageKey,
+  serializeReviewDraft,
+  type ReviewConflictChoices,
+} from '@/lib/knowledge/workspace-drafts';
 
 interface ReviewPayload extends KnowledgeReviewRecord {
   revisions: KnowledgeReviewRevision[];
@@ -37,8 +44,27 @@ interface ReviewPayload extends KnowledgeReviewRecord {
 interface Props {
   library: KnowledgeLibraryProjection;
   writePolicy: WritePolicy;
+  initialObjectId?: string | null;
   onSelectKnowledge: (objectId: string) => void;
   onLibraryItemUpdated?: (item: KnowledgeLibraryItem) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+}
+
+interface ReviewConflict {
+  base: KnowledgeReviewPatch;
+  current: ReviewPayload;
+  local: KnowledgeReviewPatch;
+}
+
+const conflictFieldLabels: Partial<Record<keyof KnowledgeReviewPatch, string>> = {
+  title: '标题', body: '正文', knowledge_form: '知识形态', domain_refs: '领域', asset_maturity: '成熟度',
+  cognitive_lenses: '认知镜头', scope: '边界', valid_time: '有效时间', observed_at: '系统获知',
+  source_refs: '来源证据', relations: '关系', supersedes: '替代链', evidence_grade: '证据等级',
+  confidence: '置信度', usage_context: '使用语境', value_context: '价值语境',
+};
+
+function displayConflictValue(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }
 
 const formOptions = {
@@ -92,8 +118,12 @@ function useMobileReview(): boolean {
   return isMobile;
 }
 
-export function KnowledgeReviewWorkspace({ library, writePolicy, onSelectKnowledge, onLibraryItemUpdated }: Props) {
-  const [selectedId, setSelectedId] = useState(library.items[0]?.objectId ?? '');
+export function KnowledgeReviewWorkspace({ library, writePolicy, initialObjectId, onSelectKnowledge, onLibraryItemUpdated, onDirtyChange }: Props) {
+  const [selectedId, setSelectedId] = useState(
+    initialObjectId && library.items.some(item => item.objectId === initialObjectId)
+      ? initialObjectId
+      : library.items[0]?.objectId ?? '',
+  );
   const [query, setQuery] = useState('');
   const [queueState, setQueueState] = useState<KnowledgeReviewQueueItem[]>(() => library.items.map(item => ({
     objectId: item.objectId,
@@ -108,6 +138,8 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, onSelectKnowled
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
+  const [conflict, setConflict] = useState<ReviewConflict | null>(null);
+  const [conflictChoices, setConflictChoices] = useState<ReviewConflictChoices>({});
   const [ownerAuthenticated, setOwnerAuthenticated] = useState(writePolicy.mode === 'dev');
   const isMobile = useMobileReview();
   const canEdit = writePolicy.writable && ownerAuthenticated && !isMobile;
@@ -126,6 +158,11 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, onSelectKnowled
     return JSON.stringify(draft) !== JSON.stringify(patchFromObject(record.object));
   }, [draft, record]);
   const draftBody = useMemo(() => splitKnowledgeBody(draft?.body ?? ''), [draft?.body]);
+  const migrationStatus = useMemo(() => ({
+    total: queueState.length,
+    initialized: queueState.filter(item => item.initialized).length,
+    unresolved: queueState.reduce((total, item) => total + Math.max(0, item.reviewReasonCount - item.resolvedReviewCount), 0),
+  }), [queueState]);
 
   const loadRecord = useCallback(async (objectId: string) => {
     if (!objectId) return;
@@ -139,7 +176,20 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, onSelectKnowled
       const payload = await response.json() as ReviewPayload & { error?: string };
       if (!response.ok) throw new Error(payload.error || 'Review 对象加载失败。');
       setRecord(payload);
-      setDraft(patchFromObject(payload.object));
+      const currentPatch = patchFromObject(payload.object);
+      const stored = parseReviewDraft(window.localStorage.getItem(reviewDraftStorageKey(objectId)));
+      if (stored && stored.baseRevision === payload.revision && stored.baseObjectHash === payload.objectHash) {
+        setDraft(stored.local);
+        setStatus('已恢复此对象的本地 Review 草稿。');
+      } else if (stored) {
+        setDraft(stored.local);
+        setConflict({ base: stored.base, current: payload, local: stored.local });
+        setConflictChoices({});
+        setStatus('检测到服务器 revision 已变化，请完成三方合并。');
+      } else {
+        setDraft(currentPatch);
+        setConflict(null);
+      }
       setQueueState(current => current.map(item => item.objectId === objectId ? {
         ...item,
         title: payload.object.title,
@@ -155,6 +205,10 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, onSelectKnowled
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (initialObjectId && library.items.some(item => item.objectId === initialObjectId)) setSelectedId(initialObjectId);
+  }, [initialObjectId, library.items]);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,6 +233,27 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, onSelectKnowled
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
 
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    if (!record || !draft) return;
+    const key = reviewDraftStorageKey(record.object.object_id);
+    if (!dirty) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      window.localStorage.setItem(key, serializeReviewDraft({
+        objectId: record.object.object_id,
+        baseRevision: record.revision,
+        baseObjectHash: record.objectHash,
+        base: patchFromObject(record.object),
+        local: draft,
+      }));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [draft, dirty, record]);
+
   const save = useCallback(async () => {
     if (!record || !draft || !canEdit || saving) return;
     setSaving(true);
@@ -196,11 +271,23 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, onSelectKnowled
       });
       const payload = await response.json() as ReviewPayload & { error?: string; code?: string };
       if (!response.ok) {
-        if (response.status === 409) throw new Error('对象已被其他会话更新。保留当前草稿，请重新载入后再合并。');
+        if (response.status === 409) {
+          const currentResponse = await fetch(`/api/knowledge/review/${encodeURIComponent(record.object.object_id)}`, {
+            credentials: 'same-origin', cache: 'no-store',
+          });
+          const current = await currentResponse.json() as ReviewPayload & { error?: string };
+          if (!currentResponse.ok) throw new Error(current.error || '冲突后的服务器版本加载失败。');
+          setConflict({ base: patchFromObject(record.object), current, local: draft });
+          setConflictChoices({});
+          setStatus('检测到 CAS 冲突。本地草稿已保留，请比较基线、服务器当前值和本地值。');
+          return;
+        }
         throw new Error(payload.error || '候选修订保存失败。');
       }
       setRecord(payload);
       setDraft(patchFromObject(payload.object));
+      setConflict(null);
+      window.localStorage.removeItem(reviewDraftStorageKey(payload.object.object_id));
       setQueueState(current => current.map(item => item.objectId === payload.object.object_id ? {
         ...item,
         title: payload.object.title,
@@ -239,15 +326,32 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, onSelectKnowled
   const authenticate = useCallback((authenticated: boolean) => setOwnerAuthenticated(authenticated), []);
   const selectRecord = (objectId: string) => {
     if (objectId === selectedId) return;
-    if (dirty && !window.confirm('当前对象有未保存草稿。放弃草稿并切换对象？')) return;
+    if (dirty && !window.confirm('当前对象有未保存草稿，已保存在本地。仍要切换对象？')) return;
     setSelectedId(objectId);
   };
   const returnToLibrary = () => {
-    if (dirty && !window.confirm('当前对象有未保存草稿。放弃草稿并返回 Library？')) return;
+    if (dirty && !window.confirm('当前对象有未保存草稿，已保存在本地。仍要返回 Library？')) return;
     if (record) onSelectKnowledge(record.object.object_id);
   };
   const updateDraft = <K extends keyof KnowledgeReviewPatch>(key: K, value: KnowledgeReviewPatch[K]) => {
     setDraft(current => current ? { ...current, [key]: value } : current);
+  };
+  const resolveConflict = (mode: 'merge' | 'current') => {
+    if (!conflict) return;
+    const currentPatch = patchFromObject(conflict.current.object);
+    const nextDraft = mode === 'current'
+      ? currentPatch
+      : mergeReviewConflict(currentPatch, conflict.local, conflictChoices);
+    setRecord(conflict.current);
+    setDraft(nextDraft);
+    setConflict(null);
+    setConflictChoices({});
+    if (mode === 'current') {
+      window.localStorage.removeItem(reviewDraftStorageKey(conflict.current.object.object_id));
+      setStatus('已采用服务器当前 revision，本地冲突草稿已放弃。');
+    } else {
+      setStatus('已形成合并草稿；请复核后保存为新的 candidate revision。');
+    }
   };
 
   return (
@@ -271,6 +375,11 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, onSelectKnowled
             <div><span>HUMAN REVIEW</span><strong>{library.stats.reviewRequired}</strong></div>
             <label><Search aria-hidden="true" /><span className="sr-only">搜索复核队列</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索队列…" /></label>
           </header>
+          <dl className="review-queue__migration" aria-label="Legacy migration queue 状态">
+            <div><dt>迁移总量</dt><dd>{migrationStatus.total}</dd></div>
+            <div><dt>已建立修订</dt><dd>{migrationStatus.initialized}</dd></div>
+            <div><dt>待解决原因</dt><dd>{migrationStatus.unresolved}</dd></div>
+          </dl>
           <div className="review-queue__items" role="list">
             {queue.map(({ summary, item }, index) => (
               <div key={summary.objectId} role="listitem" className="review-queue__item">
@@ -301,13 +410,37 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, onSelectKnowled
                 </div>
                 <div>
                   <button type="button" onClick={returnToLibrary}><ArrowLeft aria-hidden="true" />Library</button>
-                  <button type="button" onClick={() => loadRecord(record.object.object_id)}><RefreshCw aria-hidden="true" />重新载入</button>
+                  <button type="button" onClick={() => {
+                    if (dirty && !window.confirm('重新载入会进入冲突比较或放弃当前视图，是否继续？')) return;
+                    void loadRecord(record.object.object_id);
+                  }}><RefreshCw aria-hidden="true" />重新载入</button>
                 </div>
               </header>
 
               <section className="review-dossier__alerts">
                 {record.reviewReasons.map(reason => <p key={reason} data-resolved={record.resolvedReviewReasons.includes(reason)}><CircleAlert aria-hidden="true" />{reason}</p>)}
               </section>
+
+              {conflict ? (
+                <section className="review-conflict" aria-labelledby="review-conflict-title">
+                  <header><CircleAlert aria-hidden="true" /><div><span>CAS CONFLICT</span><h3 id="review-conflict-title">三方合并：基线 / 服务器 / 本地</h3></div></header>
+                  <p>未选择的字段默认保留本地草稿。只有点击“形成合并草稿”后才会更新编辑基线，仍不会写入 canonical。</p>
+                  <div className="review-conflict__fields">
+                    {(Object.keys(conflictFieldLabels) as Array<keyof KnowledgeReviewPatch>)
+                      .filter(key => JSON.stringify(conflict.base[key]) !== JSON.stringify(conflict.current.object[key])
+                        || JSON.stringify(conflict.base[key]) !== JSON.stringify(conflict.local[key]))
+                      .map(key => (
+                        <fieldset key={key}>
+                          <legend>{conflictFieldLabels[key] ?? key}</legend>
+                          <div><small>BASE</small><pre>{displayConflictValue(conflict.base[key])}</pre></div>
+                          <label><input type="radio" name={`conflict-${key}`} checked={conflictChoices[key] === 'current'} onChange={() => setConflictChoices(current => ({ ...current, [key]: 'current' }))} /><span>CURRENT</span><pre>{displayConflictValue(patchFromObject(conflict.current.object)[key])}</pre></label>
+                          <label><input type="radio" name={`conflict-${key}`} checked={(conflictChoices[key] ?? 'local') === 'local'} onChange={() => setConflictChoices(current => ({ ...current, [key]: 'local' }))} /><span>LOCAL</span><pre>{displayConflictValue(conflict.local[key])}</pre></label>
+                        </fieldset>
+                      ))}
+                  </div>
+                  <footer><button type="button" onClick={() => resolveConflict('current')}>采用服务器当前值</button><button type="button" onClick={() => resolveConflict('merge')}>形成合并草稿</button></footer>
+                </section>
+              ) : null}
 
               {canEdit ? (
                 <form className="review-editor" onSubmit={event => { event.preventDefault(); void save(); }}>
@@ -350,7 +483,7 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, onSelectKnowled
 
                   <footer>
                     <p>{dirty ? '存在未保存草稿' : '当前表单与已保存 revision 一致'}</p>
-                    <button type="button" disabled={!dirty || saving} onClick={() => { setDraft(patchFromObject(record.object)); setStatus('草稿已放弃；没有产生 revision。'); }}><RotateCcw aria-hidden="true" />放弃草稿</button>
+                    <button type="button" disabled={!dirty || saving} onClick={() => { setDraft(patchFromObject(record.object)); window.localStorage.removeItem(reviewDraftStorageKey(record.object.object_id)); setStatus('草稿已放弃；没有产生 revision。'); }}><RotateCcw aria-hidden="true" />放弃草稿</button>
                     <button type="submit" disabled={!dirty || saving}>{saving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Save aria-hidden="true" />}保存候选修订</button>
                   </footer>
                 </form>

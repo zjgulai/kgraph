@@ -30,6 +30,39 @@ export interface BlueprintArtifactManifest {
     errors: ValidationError[];
     warnings: ValidationError[];
   };
+  input?: {
+    inputHash: string;
+    productTaskId: string;
+    baseKnowledgeRevision: string;
+    evidenceIds: string[];
+    compilerVersion: 'blueprint-compiler-v1.1';
+    sourceMap: {
+      productTask: 'product_task';
+      evidence: 'evidence_matrix';
+      execution: 'execution.genome';
+    };
+  };
+  replay?: {
+    status: 'replayable';
+    requiredInputs: ['blueprintRevision', 'blueprintDocumentHash', 'compiledAt'];
+  };
+  productionStatus: 'unchanged';
+}
+
+export interface BlueprintCompilePreview {
+  schemaVersion: 'doccanvas-blueprint-compile-preview-v1';
+  blueprintId: string;
+  blueprintRevision: number;
+  inputHash: string;
+  productTaskId: string;
+  baseKnowledgeRevision: string;
+  evidenceIds: string[];
+  compilerVersion: 'blueprint-compiler-v1.1';
+  compiledAt: string;
+  artifactKey: string;
+  genomeHash: string;
+  outputs: ['manifest.json', 'product-genome.yaml'];
+  validation: BlueprintArtifactManifest['validation'];
   productionStatus: 'unchanged';
 }
 
@@ -67,11 +100,22 @@ export function compileBlueprintArtifact(options: {
   artifactDir?: string;
   blueprintId: string;
   compiledAt: string;
+  baseRevision?: number;
+  baseDocumentHash?: string;
 }): CompiledBlueprintArtifact {
   if (!DATE_TIME_WITH_OFFSET.test(options.compiledAt) || Number.isNaN(Date.parse(options.compiledAt))) {
     fail('COMPILED_AT_INVALID', 'compiledAt 必须是带时区的 ISO 8601 date-time');
   }
   const current = loadBlueprintCandidate({ storeDir: options.storeDir, blueprintId: options.blueprintId });
+  const hasExpectedRevision = options.baseRevision !== undefined || options.baseDocumentHash !== undefined;
+  if (hasExpectedRevision && (
+    options.baseRevision === undefined
+    || options.baseDocumentHash === undefined
+    || current.revision !== options.baseRevision
+    || current.documentHash !== options.baseDocumentHash
+  )) {
+    fail('BLUEPRINT_COMPILE_INPUT_DRIFT', `current=${current.revision}/${current.documentHash}`, 409);
+  }
   let compiled: ReturnType<typeof compileBlueprint>;
   try {
     compiled = compileBlueprint(current.blueprint, { compiledAt: options.compiledAt });
@@ -117,6 +161,22 @@ export function compileBlueprintArtifact(options: {
     genomeFile,
     genomeHash,
     validation: { errors: validation.errors, warnings: validation.warnings },
+    input: {
+      inputHash: current.documentHash,
+      productTaskId: current.blueprint.product_task.task_id,
+      baseKnowledgeRevision: current.blueprint.base_knowledge_revision,
+      evidenceIds: [...new Set(current.blueprint.evidence_matrix.flatMap(item => item.evidence_ids))].sort(),
+      compilerVersion: 'blueprint-compiler-v1.1',
+      sourceMap: {
+        productTask: 'product_task',
+        evidence: 'evidence_matrix',
+        execution: 'execution.genome',
+      },
+    },
+    replay: {
+      status: 'replayable',
+      requiredInputs: ['blueprintRevision', 'blueprintDocumentHash', 'compiledAt'],
+    },
     productionStatus: 'unchanged',
   };
   const genomePath = join(target, genomeFile);
@@ -124,4 +184,52 @@ export function compileBlueprintArtifact(options: {
   writeFileSync(genomePath, genomeYaml, { encoding: 'utf8', flag: 'wx', flush: true, mode: 0o640 });
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { encoding: 'utf8', flag: 'wx', flush: true, mode: 0o640 });
   return { manifest, genomeYaml, genomePath, manifestPath };
+}
+
+export function previewBlueprintArtifact(options: {
+  storeDir?: string;
+  artifactDir?: string;
+  blueprintId: string;
+  compiledAt: string;
+  baseRevision: number;
+  baseDocumentHash: string;
+}): BlueprintCompilePreview {
+  if (!DATE_TIME_WITH_OFFSET.test(options.compiledAt) || Number.isNaN(Date.parse(options.compiledAt))) {
+    fail('COMPILED_AT_INVALID', 'compiledAt 必须是带时区的 ISO 8601 date-time');
+  }
+  const current = loadBlueprintCandidate({ storeDir: options.storeDir, blueprintId: options.blueprintId });
+  if (current.revision !== options.baseRevision || current.documentHash !== options.baseDocumentHash) {
+    fail('BLUEPRINT_COMPILE_INPUT_DRIFT', `current=${current.revision}/${current.documentHash}`, 409);
+  }
+  let compiled: ReturnType<typeof compileBlueprint>;
+  try {
+    compiled = compileBlueprint(current.blueprint, { compiledAt: options.compiledAt });
+  } catch (error) {
+    if (error instanceof BlueprintValidationError) {
+      const first = error.errors[0];
+      fail(first?.code ?? 'BLUEPRINT_NOT_COMPILE_READY', error.message, 409);
+    }
+    throw error;
+  }
+  const validation = validateGenome(compiled.genome);
+  if (!validation.success) {
+    fail('COMPILED_GENOME_INVALID', validation.errors.map(item => `${item.section}.${item.field}: ${item.message}`).join('; '), 500);
+  }
+  const genomeYaml = stringifyYaml(compiled.genome, { lineWidth: 0 });
+  return {
+    schemaVersion: 'doccanvas-blueprint-compile-preview-v1',
+    blueprintId: current.blueprintId,
+    blueprintRevision: current.revision,
+    inputHash: current.documentHash,
+    productTaskId: current.blueprint.product_task.task_id,
+    baseKnowledgeRevision: current.blueprint.base_knowledge_revision,
+    evidenceIds: [...new Set(current.blueprint.evidence_matrix.flatMap(item => item.evidence_ids))].sort(),
+    compilerVersion: 'blueprint-compiler-v1.1',
+    compiledAt: options.compiledAt,
+    artifactKey: blueprintArtifactKey(current.revision, options.compiledAt),
+    genomeHash: `sha256:${createHash('sha256').update(genomeYaml, 'utf8').digest('hex')}`,
+    outputs: ['manifest.json', 'product-genome.yaml'],
+    validation: { errors: validation.errors, warnings: validation.warnings },
+    productionStatus: 'unchanged',
+  };
 }

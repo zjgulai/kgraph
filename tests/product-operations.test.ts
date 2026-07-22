@@ -106,7 +106,11 @@ test('operations projection uses evidence for workflow, bitemporal timeline and 
   assert.equal(projection.artifacts.length, 1);
   assert.equal(projection.workflow.find(stage => stage.id === 'artifact')?.state, 'complete');
   assert.equal(projection.workflow.find(stage => stage.id === 'evolution')?.state, 'blocked');
-  assert.equal(projection.timeline.observed.events.length, library.items.length);
+  assert.equal(
+    projection.timeline.observed.events.length,
+    projection.evidenceRegistry.items.filter(item => item.observedAt !== null).length,
+  );
+  assert.equal(projection.timeline.events.every(event => projection.evidenceRegistry.items.some(item => item.evidenceId === event.evidenceId)), true);
   assert.equal(projection.timeline.valid.unknownCount, library.items.filter(item => item.validTime.from === null).length);
   assert.equal(projection.evolution.checks.some(check => check.status === 'not_measured'), true);
   assert.equal(projection.evolution.checks.some(check => check.evidence.includes('simulated')), false);
