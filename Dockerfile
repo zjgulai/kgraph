@@ -11,12 +11,14 @@ RUN npm ci --include=dev --no-audit --no-fund --prefix /workspace/scripts
 
 COPY doccanvas/tsconfig.json doccanvas/next.config.ts doccanvas/postcss.config.mjs doccanvas/playwright.config.ts ./
 COPY doccanvas/ecosystem.config.cjs doccanvas/nginx.conf doccanvas/.dockerignore doccanvas/Dockerfile ./
+COPY doccanvas/README.md doccanvas/DESIGN.md ./
 COPY doccanvas/app ./app
 COPY doccanvas/components ./components
 COPY doccanvas/lib ./lib
 COPY doccanvas/opendesign ./opendesign
 COPY doccanvas/public ./public
 COPY doccanvas/documents ./documents
+COPY doccanvas/docs ./docs
 COPY product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json ./knowledge/shared-knowledge-v1-candidate-pack.json
 COPY product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json /workspace/product/knowledge-object-fixtures/shared-knowledge-v1-candidate-pack.json
 COPY product/blueprint-fixtures/valid-approved-blueprint.yaml /workspace/product/blueprint-fixtures/valid-approved-blueprint.yaml

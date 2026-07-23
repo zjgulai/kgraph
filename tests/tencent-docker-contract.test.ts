@@ -172,7 +172,10 @@ test('build script assembles an external allowlist context and requires a digest
   assert.match(script, /buildx_version=/);
   assert.match(script, /sensitive/i);
   assert.match(script, /docker save/);
-  assert.match(script, /app components lib opendesign public documents scripts tests deploy/);
+  assert.match(script, /README\.md DESIGN\.md package\.json/u);
+  assert.match(script, /app components lib opendesign public documents docs scripts tests deploy/);
+  assert.match(read('Dockerfile'), /COPY doccanvas\/README\.md doccanvas\/DESIGN\.md \.\//u);
+  assert.match(read('Dockerfile'), /COPY doccanvas\/docs \.\/docs/u);
   assert.match(script, /KNOWLEDGE_PACK_SOURCE/);
   assert.match(script, /SCRIPTS_PACKAGE_SOURCE/);
   assert.match(script, /scripts\/package-lock\.json/);

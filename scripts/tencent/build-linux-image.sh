@@ -43,9 +43,9 @@ RELEASE_COMMIT_PREFIX="${RELEASE_ID##*-}"
 git -C "$DOCCANVAS_ROOT" diff --quiet || fail "tracked worktree changes must be committed before build"
 git -C "$DOCCANVAS_ROOT" diff --cached --quiet || fail "staged changes must be committed before build"
 UNTRACKED_SOURCE="$(git -C "$DOCCANVAS_ROOT" ls-files --others --exclude-standard -- \
-  Dockerfile .dockerignore package.json package-lock.json tsconfig.json next.config.ts \
+  Dockerfile .dockerignore README.md DESIGN.md package.json package-lock.json tsconfig.json next.config.ts \
   postcss.config.mjs playwright.config.ts ecosystem.config.cjs nginx.conf app components lib opendesign \
-  public documents scripts tests deploy)"
+  public documents docs scripts tests deploy)"
 [[ -z "$UNTRACKED_SOURCE" ]] || fail "untracked file found in release allowlist"
 CONTEXT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/doccanvas-build-context.XXXXXX")"
 OUTPUT_PARENT="$(dirname "$OUTPUT_DIR")"
@@ -59,10 +59,10 @@ trap cleanup EXIT
 mkdir -p "$CONTEXT_DIR/doccanvas"
 cp "$DOCCANVAS_ROOT/Dockerfile" "$CONTEXT_DIR/Dockerfile"
 cp "$DOCCANVAS_ROOT/.dockerignore" "$CONTEXT_DIR/.dockerignore"
-for file in package.json package-lock.json tsconfig.json next.config.ts postcss.config.mjs playwright.config.ts ecosystem.config.cjs nginx.conf Dockerfile .dockerignore; do
+for file in README.md DESIGN.md package.json package-lock.json tsconfig.json next.config.ts postcss.config.mjs playwright.config.ts ecosystem.config.cjs nginx.conf Dockerfile .dockerignore; do
   cp "$DOCCANVAS_ROOT/$file" "$CONTEXT_DIR/doccanvas/$file"
 done
-for dir in app components lib opendesign public documents scripts tests deploy; do
+for dir in app components lib opendesign public documents docs scripts tests deploy; do
   cp -R "$DOCCANVAS_ROOT/$dir" "$CONTEXT_DIR/doccanvas/$dir"
 done
 mkdir -p "$CONTEXT_DIR/product/knowledge-object-fixtures"
