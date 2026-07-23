@@ -1,12 +1,14 @@
 ---
 title: DocCanvas
-status: owner-v3-implementation-complete-local
-updated: 2026-07-15
+status: governed-workbench-ui098-preflight-batch-1-candidate-blocked
+updated: 2026-07-23
 ---
 
 # DocCanvas
 
 DocCanvas 是一个 Markdown-first 的产品工厂画布：它把结构化 Markdown 投影为统一 `FactoryScene`，以 DOM 渲染模块和节点、以单一 SVG 图层渲染正交关系与情境 tracer。桌面端支持 Owner 结构化编辑与修订恢复，移动端始终使用只读纵向流程轨。项目基于 Next.js 15、React 19、TypeScript 和 Tailwind CSS v4。
+
+当前产品已经扩展为四域证据工作台：`Knowledge / Product / Operations / Sources`。产品定位、商业价值、设计逻辑、Owner/Reviewer/Operator 操作方法、模块演进方向和证据边界统一记录在 [DocCanvas 产品复盘、设计逻辑与角色使用手册](./docs/product/doccanvas-product-review-and-role-manual.html)。D9 本地自动化验收与 D10/UI-097 文档已完成；[UI-022–025 Knowledge 工作流](./docs/engineering/ui098-knowledge-workflow-implementation.md)已在本地实现并通过完整 Chromium/WebKit/mobile 顺序验收，[UI-098 候选前对账](./docs/engineering/ui098-preflight-reconciliation.md)已进入精确 source checkpoint 冻结准备，UI-099 生产未执行。
 
 ## 本地运行
 
@@ -58,7 +60,7 @@ shared Nginx :443
 - [deploy/tencent/README.md](./deploy/tencent/README.md)：Linux image 与 Compose 候选包说明。
 - [deploy/tencent/PRODUCTION-RUNBOOK.md](./deploy/tencent/PRODUCTION-RUNBOOK.md)：只读盘点、备份、受控替换、生产 smoke 与人工事故恢复计划。
 
-历史快照显示腾讯云仍运行 readonly 版本，但发布前必须重新读取真实生产状态。当前工作树只完成本地实现与候选准备，尚未固定 clean commit、image digest、数据备份 checksum 和变更窗口：`production unchanged`。源码验证、本地 candidate、镜像 smoke、生产替换与最终验收必须继续分层表述，不能互相替代。当前授权边界以 [DEPLOY.md](./DEPLOY.md) 为准。
+历史快照不能替代当前生产事实；发布前必须重新执行只读盘点。当前工作树完成 D6–D10、UI-098 前置对账、UI-022–025 本地实现及完整 Playwright `50/22/0`，但仍包含未提交改动，也没有为本版本固定 clean commit、image digest、数据备份 checksum 和变更窗口：`production unchanged`。源码验证、本地 candidate、镜像 smoke、生产替换与最终验收必须继续分层表述，不能互相替代。当前授权边界以 [DEPLOY.md](./DEPLOY.md) 为准。
 
 ## 常用命令
 

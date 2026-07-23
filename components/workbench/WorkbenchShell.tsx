@@ -94,6 +94,7 @@ function isPlainPrimaryClick(event: React.MouseEvent<HTMLAnchorElement>): boolea
 export function WorkbenchShell({ route, counts, commandItems, onNavigate, children }: Props) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const pageTitleRef = useRef<HTMLHeadingElement>(null);
+  const commandTriggerRef = useRef<HTMLButtonElement>(null);
   const current = WORKBENCH_VIEW_META[route.view];
 
   useEffect(() => {
@@ -177,7 +178,7 @@ export function WorkbenchShell({ route, counts, commandItems, onNavigate, childr
             <Boxes aria-hidden="true" />
             <div><small>{AREA_LABELS[route.area]}</small><h1 ref={pageTitleRef} tabIndex={-1}>{current.title}</h1></div>
           </div>
-          <button className="workbench-commandbar__search" type="button" onClick={() => setPaletteOpen(true)}>
+          <button ref={commandTriggerRef} className="workbench-commandbar__search" type="button" aria-label="搜索对象与命令" onClick={() => setPaletteOpen(true)}>
             <Search aria-hidden="true" /><span>搜索对象与命令</span><kbd>⌘ K</kbd>
           </button>
           <span className="workbench-commandbar__mode"><Command aria-hidden="true" />{current.description}</span>
@@ -193,7 +194,7 @@ export function WorkbenchShell({ route, counts, commandItems, onNavigate, childr
         })}
       </nav>
 
-      <CommandPalette open={paletteOpen} items={allCommands} onClose={() => setPaletteOpen(false)} onNavigate={onNavigate} />
+      <CommandPalette open={paletteOpen} items={allCommands} onClose={() => setPaletteOpen(false)} onNavigate={onNavigate} returnFocusRef={commandTriggerRef} />
     </main>
   );
 }

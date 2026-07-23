@@ -152,7 +152,14 @@ export function ArchitectureCapNode({ data }: { data: ArchitectureCapData }) {
       <section className="architecture-cap architecture-cap--roof" aria-label="产品工厂工业檐口">
         <div className="factory-roof" aria-hidden="true">
           <span className="factory-roof__cornice" />
-          <span className="factory-roof__label">LIVING PRODUCT FACTORY</span>
+          <span className="factory-roof__label factory-roof__label--factory">LIVING PRODUCT FACTORY</span>
+          <span className="factory-roof__label factory-roof__label--map">KNOWLEDGE MAP</span>
+          <span className="factory-roof__legend">
+            <span data-kind="flow">主流程</span>
+            <span data-kind="governance">治理</span>
+            <span data-kind="dependency">依赖</span>
+            <span data-kind="resource">资源</span>
+          </span>
           <span className="factory-roof__profile"><i /><i /><i /></span>
           <span className="factory-roof__depth" />
         </div>

@@ -1,7 +1,7 @@
 ---
 title: DocCanvas 证据优先工作台 UI 与交互重构计划
-status: active-d2-complete
-updated: 2026-07-22
+status: active-d8-complete-local-d9-pending
+updated: 2026-07-23
 scope: DocCanvas product shell, knowledge workflow, product workflow, operations, canvas, responsive UX
 production: unchanged
 ---
@@ -488,11 +488,15 @@ lib/workbench/
 
 继承能力对账：Factory Scene v3 已具备统一端口、正交路由、增量重路由、一次性 tracer、关系 Inspector、移动关系轨与 4:5 肖像核心，但尚未按 Map/Factory 与新 Workbench 契约完成整体复验。逐项状态和发布边界见 `docs/engineering/governed-workbench-release-reconciliation.md`。
 
+状态（2026-07-22）：`completed_local_with_d8_perf_gate_open`。默认 Map、显式 Factory、关系图例、精简 toolbar、独立 `CanvasToolbar`/presentation switch、同一场景内核与两份桌面视觉基准完成；三个内置文档的 layout/scene/SVG 关系计数在 Chromium/WebKit 一致，Inspector、tracer、reduced-motion、移动只读关系轨与 PNG/SVG 真实导出通过。完整 unit `347/347`、typecheck、production build 通过。全套 1000/2000 性能门仍保留 D5 的顺序/负载敏感失败结论，未降阈值；D8 前不声明完整发布验收。未 commit、push、构建候选或改变生产。
+
 ### D7 — 响应式与移动只读
 
 交付：tablet drawer、mobile bottom nav、read-only detail、纵向关系轨、safe-area。
 
 硬门：390×844 无横向溢出；不渲染写控件；触控不触发 hover 动效。
+
+状态（2026-07-23）：`completed_local_with_d8_perf_gate_open`。三档 shell、tablet drawer、390px 五项底部画布导航、移动纵向关系轨与全屏只读 detail sheet 完成；safe-area、44px 触控、touch-action、overscroll containment 和 Owner 控件隐藏均已建立契约。新鲜验证为 focused `40/40`、unit `350/350`、typecheck、production build；Playwright CLI 的 1440/1024/390 几何和视觉检查通过，390px `overflow=0`、五项目标均为 `75×48px`、detail sheet 无写控件且 console `0/0`；Pixel 7 关系轨视觉用例正常复跑 `1/1`。全套 Canvas 性能门仍留给 D8；未 commit、push、构建候选或改变生产。
 
 ### D8 — 性能与代码治理
 
@@ -500,17 +504,23 @@ lib/workbench/
 
 硬门：性能预算达标；`globals.css` 与 `CanvasViewer.tsx` 不再作为新增功能的默认落点。
 
+状态（2026-07-23）：`completed_local`。Review、Knowledge Canvas、Provider Ops 已动态加载；Knowledge/Canvas CSS 有明确 owner，`globals.css` 从 4097 行收敛到 1306 行；CSS budget 为裸色 0、`transition: all` 0，全部 6 个 `!important` 仅在有解释的 reduced-motion 无障碍覆盖中。Canvas 相机用 DOM 即时 transform 与 80ms 延迟虚拟化提交，性能从连续 `3/3` 的 `50.00–52.94fps` RED 转为隔离 `3/3` GREEN，并在最终完整 Playwright 顺序中通过。FCP/INP、surface switch、Inspector、pan/zoom/drag/reroute telemetry 与媒体尺寸/懒加载规则完成；原生 non-passive wheel 消除了 console error。最终 unit `353/353`、typecheck、production build、Playwright `34 passed / 17 intentionally skipped / 0 failed`。未 commit、push、构建候选或改变生产。
+
 ### D9 — 自动化验收与用户验证
 
 交付：Playwright Chromium/WebKit/mobile、视觉快照、a11y、真实 CRUD/CAS/revision restore、5 个任务可用性测试。
 
 硬门：P0/P1 零未关闭；关键任务成功率、完成时间和错误率有基线与新版本对比。
 
+状态（2026-07-23）：`completed_local_automated_with_human_validation_limit`。完整 unit `356/356`、typecheck、production build、Playwright `45 passed / 21 intentionally skipped / 0 failed`。Chromium/WebKit/390px/键盘、真实隔离 CRUD/CAS/compile/restore、七态快照、Canvas 计数/导出/规模、WCAG AA/focus/name/reduced-motion/touch 自动化门通过；五项机器任务为 124–857ms、错误和求助点均为 0。D0 无同口径旧版计时，且本轮没有真实主持式用户或辅助技术人工测试，因此不伪造提升比例；完整记录见 `docs/engineering/d9-automated-acceptance.md`。未 commit、push、构建候选或改变生产。
+
 ### D10 — 文档、候选与发布
 
 交付：设计手册、使用手册更新、模块迭代图、release evidence、候选镜像与 app-only 发布包。
 
 硬门：单独执行 commit/image/backup/窗口授权；本计划不构成生产变更授权。
+
+状态（2026-07-23）：`local_acceptance_complete_source_checkpoint_preparation`。UI-014、UI-022–025、UI-072、UI-073 已在当前本地工作树关闭或重验；Knowledge 实现证据见 `docs/engineering/ui098-knowledge-workflow-implementation.md`。完整 unit `366/366`、typecheck、build 通过；真实 Chromium CLI 在 1280/390 下验证 URL、键盘焦点、Inspector、Review 三栏和零横向溢出；最终完整 Playwright 顺序为 `50 passed / 22 intentionally skipped / 0 failed`。当前只进入 source allowlist、content manifest 与 scope hash 冻结准备；未 stage、commit、push、构建 candidate 或改变生产。
 
 ## 11. 完整 TODO
 
@@ -526,21 +536,21 @@ lib/workbench/
 - [x] **UI-007** 将导航按钮改为可深链 link，完成 back/forward、Cmd-click、新标签测试。
 - [x] **UI-008** 建立全局 Command Palette，覆盖对象搜索、视图跳转和允许动作。
 - [x] **UI-009** 建立 Work Queue projection，显示 next action、blocker、owner、freshness。
-- [ ] **UI-010** 建立统一人类化 label registry，禁止直接向普通用户暴露 raw enum。
+- [x] **UI-010** 建立统一人类化 label registry，禁止直接向普通用户暴露 raw enum。
 - [x] **UI-011** 建立 StatusBadge/StatusSummary，保证文字、图标、颜色三重语义。
 - [x] **UI-012** 建立 AsyncState：loading、empty、error、retry、stale、offline。
-- [ ] **UI-013** 建立 mutation 状态：draft、dirty、saving、saved、conflict、failed。
-- [ ] **UI-014** 为所有编辑表单增加未保存离开保护和 draft 恢复策略。
+- [x] **UI-013** 建立 mutation 状态：draft、dirty、saving、saved、conflict、failed。
+- [x] **UI-014** 为 Workbench 全部编辑器建立统一 dirty registry、跨工作区离开保护和版本化 draft 恢复；Human Gold 草稿绑定来源/修订且不持久化 attestation。
 - [x] **UI-015** 为 Dialog/Drawer/Menu 补焦点陷阱、Escape、恢复和 aria-live；Inspector 为非模态补语义标题与下一动作。
 
 ### P0：Knowledge 闭环
 
 - [x] **UI-020** 重构 Capture 输入方式与来源预览，补充字段语义、草稿恢复和重复检测；字段级 server error 关联继续随表单 primitive 迁移完善。
 - [x] **UI-021** Capture 提交后导航到新对象并展示下一动作及 lineage。
-- [ ] **UI-022** Library 的筛选、排序、密度、视图和选择进入 URL。
-- [ ] **UI-023** Library 超过 50 条启用虚拟化，并覆盖键盘选择与 Inspector 同步。
-- [ ] **UI-024** Inspector 第一屏重排为可信度、边界、下一动作；技术元数据下沉。
-- [ ] **UI-025** Review 改为 queue/source/diff 三栏，字段绑定 evidence locator。
+- [x] **UI-022** Library 的筛选、排序、密度、视图和选择进入 URL。
+- [x] **UI-023** Library 超过 50 条启用虚拟化，并覆盖键盘选择与 Inspector 同步。
+- [x] **UI-024** Inspector 第一屏重排为可信度、边界、下一动作；技术元数据下沉。
+- [x] **UI-025** Review 改为 queue/source/diff 三栏，字段绑定 evidence locator。
 - [x] **UI-026** 实现 CAS 409 的 base/current/local 三方冲突解决界面。
 - [ ] **UI-027** 已建立真实 migration queue 总量/修订/未解决原因 projection；逐条人工 promotion 决策与历史仍待独立 canonical 授权设计。
 - [x] **UI-028** 保持 canonical promotion 为独立动作与授权门，不在普通保存后自动升级。
@@ -566,39 +576,39 @@ lib/workbench/
 - [ ] **UI-061** 清理小于 12px 的持久 UI 文本和无意义全大写 mono eyebrow。
 - [ ] **UI-062** 减少重复 card/border/top-accent，建立 row/group/divider 优先级。
 - [ ] **UI-063** 建立 Compact/Comfortable 密度并持久化偏好。
-- [ ] **UI-064** 将房屋从全局壳层移到 Canvas `Factory` presentation。
-- [ ] **UI-065** 新建 Canvas `Map` 默认表现与 Map/Factory 切换。
+- [x] **UI-064** 将房屋从全局壳层移到 Canvas `Factory` presentation。
+- [x] **UI-065** 新建 Canvas `Map` 默认表现与 Map/Factory 切换。
 - [ ] **UI-066** 分拆 camera、routing、selection、relations、export、presentation 模块。
-- [ ] **UI-067** 统一 port contract、正交 routing、专用通道、箭头和命中区。
-- [ ] **UI-068** 完成受影响边增量重路由与释放后的精确重路由。
-- [ ] **UI-069** 完成上下游高亮和一次性 tracer，覆盖 reduced-motion。
-- [ ] **UI-070** 建立关系 Inspector 和中文可访问名称。
-- [ ] **UI-071** 重做屋顶与一级标题，只在 Factory presentation 中保留克制 2.5D。
-- [ ] **UI-072** 定义数字员工卡片的角色、权限、队列、输出、失败和人工接管。
-- [ ] **UI-073** 设计统一 4:5 肖像占位与上传态，不使用随机头像或伪在线状态。
+- [x] **UI-067** 统一 port contract、正交 routing、专用通道、箭头和命中区。
+- [x] **UI-068** 完成受影响边增量重路由与释放后的精确重路由。
+- [x] **UI-069** 完成上下游高亮和一次性 tracer，覆盖 reduced-motion。
+- [x] **UI-070** 建立关系 Inspector 和中文可访问名称。
+- [x] **UI-071** 重做屋顶与一级标题，只在 Factory presentation 中保留克制 2.5D。
+- [x] **UI-072** 数字员工卡片已展示角色、状态、权限、队列、能力、最近输出、阻断和 human gate，并固定 `canExecute=false`，不伪装真实在线员工。
+- [x] **UI-073** 已使用稳定 WebP 角色、确定性 fallback 和 4:5 上传预览/规范化，不使用随机头像或伪在线状态。
 
 ### P1：响应式、性能和工程治理
 
-- [ ] **UI-080** 完成 1280+、768–1279、<768 三档 shell 行为。
-- [ ] **UI-081** 移动端只读四域导航、detail sheet 与关系轨。
-- [ ] **UI-082** 覆盖 safe-area、44px 触控、touch-action 和 overscroll containment。
-- [ ] **UI-083** 动态加载 Canvas、Review diff、Provider Ops 等重工作区。
-- [ ] **UI-084** 将 globals CSS 拆为 token/primitive/shell/module/canvas 作用域。
-- [ ] **UI-085** 设立 CSS 预算：新增裸色为零、`transition: all` 为零、无解释 `!important` 为零。
-- [ ] **UI-086** 建立真实列表与 1000/2000 Canvas 性能夹具。
-- [ ] **UI-087** 采集 FCP/INP、任务表面切换、Inspector、pan/zoom/drag/re-route 指标。
-- [ ] **UI-088** 为插图、肖像和文档预览固定尺寸、格式、懒加载和元数据规则。
+- [x] **UI-080** 完成 1280+、768–1279、<768 三档 shell 行为。
+- [x] **UI-081** 移动端只读四域导航、detail sheet 与关系轨。
+- [x] **UI-082** 覆盖 safe-area、44px 触控、touch-action 和 overscroll containment。
+- [x] **UI-083** 动态加载 Canvas、Review diff、Provider Ops 等重工作区。
+- [x] **UI-084** 将 globals CSS 拆为 token/primitive/shell/module/canvas 作用域。
+- [x] **UI-085** 设立 CSS 预算：新增裸色为零、`transition: all` 为零、无解释 `!important` 为零。
+- [x] **UI-086** 建立真实列表与 1000/2000 Canvas 性能夹具。
+- [x] **UI-087** 采集 FCP/INP、任务表面切换、Inspector、pan/zoom/drag/re-route 指标。
+- [x] **UI-088** 为插图、肖像和文档预览固定尺寸、格式、懒加载和元数据规则。
 
 ### P1：验证和发布准备
 
-- [ ] **UI-090** Playwright 覆盖 Chromium、WebKit、390px mobile 和 keyboard-only。
-- [ ] **UI-091** 覆盖 URL 深链、back/forward、刷新恢复、权限过滤和 command palette。
-- [ ] **UI-092** 覆盖 Capture、Review CAS、Blueprint diff、compile、revision restore 的真实 CRUD。
-- [ ] **UI-093** 建立 loading/empty/error/stale/conflict/unauthorized/expired 视觉快照。
-- [ ] **UI-094** 建立 Canvas 模型/路由/SVG 边数、穿模、箭头、导出结构断言。
-- [ ] **UI-095** 建立 WCAG AA、焦点、读屏名称、reduced-motion 和触屏验证。
-- [ ] **UI-096** 用五个核心任务做可用性测试并记录完成时间、错误和求助点。
-- [ ] **UI-097** 更新产品设计逻辑、Owner/Reviewer/Operator 使用手册和模块演进图。
+- [x] **UI-090** Playwright 覆盖 Chromium、WebKit、390px mobile 和 keyboard-only。
+- [x] **UI-091** 覆盖 URL 深链、back/forward、刷新恢复、权限过滤和 command palette。
+- [x] **UI-092** 覆盖 Capture、Review CAS、Blueprint diff、compile、revision restore 的真实 CRUD。
+- [x] **UI-093** 建立 loading/empty/error/stale/conflict/unauthorized/expired 视觉快照。
+- [x] **UI-094** 建立 Canvas 模型/路由/SVG 边数、穿模、箭头、导出结构断言。
+- [x] **UI-095** 建立 WCAG AA、焦点、读屏名称、reduced-motion 和触屏验证。
+- [x] **UI-096** 用五个核心任务做自动化可用性基线并记录完成时间、错误和求助点；主持式真实用户对照仍是显式证据限制。
+- [x] **UI-097** 更新产品设计逻辑、Owner/Reviewer/Operator 使用手册和模块演进图；单文件 HTML、入口文档和状态对账完成。
 - [ ] **UI-098** 生成候选 commit/image/metadata，并执行本地、candidate、L3 分层验证。
 - [ ] **UI-099** 只有在 exact commit/image/backup/window 获得新授权后执行生产 app-only activation。
 

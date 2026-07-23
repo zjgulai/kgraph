@@ -508,7 +508,10 @@ test('Enrichment Workspace states are transparent and mobile write controls are 
 
   const source = readFileSync(join(import.meta.dirname, '../components/workspace/EnrichmentWorkspace.tsx'), 'utf8');
   const routeSource = readFileSync(join(import.meta.dirname, '../app/api/knowledge/enrichments/route.ts'), 'utf8');
-  const css = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
+  const css = [
+    readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8'),
+    readFileSync(join(import.meta.dirname, '../app/knowledge-workspace.css'), 'utf8'),
+  ].join('\n');
   assert.match(source, /useMobileEnrichment|INDEPENDENT HUMAN ANNOTATION|模型输出没有被自动当作 gold|导出空白任务包|导入独立标注|PILOT CONTROL PLANE|导出授权请求/u);
   assert.match(source, /\/api\/knowledge\/enrichments\/gold\/batch/u);
   assert.match(source, /\/api\/knowledge\/enrichments\/pilot\/authorization-request|authorizationGranted|不创建 receipt/u);

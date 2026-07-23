@@ -1,9 +1,11 @@
 'use client';
+import { useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import type { DocCanvas } from '@/lib/parser/types';
 import { CanvasErrorBoundary } from '@/components/canvas/CanvasErrorBoundary';
 import type { WritePolicy } from '@/lib/server/write-guard';
 import type { DocumentPresentationSidecar } from '@/lib/canvas/presentation-sidecar';
+import { startClientPerformanceObservers } from '@/lib/client/performance-telemetry';
 
 const CanvasViewer = dynamic(() => import('@/components/canvas/CanvasViewer'), {
   ssr: false,
@@ -32,6 +34,7 @@ export function CanvasClientWrapper({
   presentation: DocumentPresentationSidecar;
   writePolicy: WritePolicy;
 }) {
+  useEffect(() => startClientPerformanceObservers(), []);
   return (
     <CanvasErrorBoundary>
       <CanvasViewer

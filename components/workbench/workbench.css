@@ -5,6 +5,15 @@
   background: var(--factory-canvas);
   color: var(--factory-ink);
   font-family: var(--factory-font-body);
+  overscroll-behavior-x: none;
+}
+
+.workspace-surface-loading {
+  display: grid;
+  min-height: 320px;
+  place-items: center;
+  color: var(--factory-muted);
+  font-size: .75rem;
 }
 
 .workbench-navigation {
@@ -164,6 +173,7 @@
 .work-queue__list h3 { margin: 3px 0 0; font-size: .875rem; }
 .work-queue__list p { margin: 5px 0 0; color: var(--factory-muted); font-size: .71875rem; line-height: 1.45; }
 .work-queue__list code { display: inline-block; margin-top: 6px; color: var(--factory-slate); font-family: var(--factory-font-mono); font-size: .625rem; }
+.work-queue__gate { display: inline-block; margin-top: 7px; color: var(--factory-slate); font-size: .6875rem; font-weight: var(--factory-weight-semibold); }
 .work-queue__list li > a { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--factory-border); border-radius: 8px; color: var(--factory-green); }
 .work-queue__list li[data-state="blocked"] > a { color: var(--factory-copper); }
 .work-queue__list li > a:hover { border-color: currentColor; background: var(--factory-surface); }
@@ -222,7 +232,7 @@
 .workbench-shell input:focus-visible,
 .workbench-shell select:focus-visible { outline: 2px solid var(--factory-green); outline-offset: 2px; }
 
-@media (max-width: 1080px) {
+@media (min-width: 768px) and (max-width: 1279px) {
   .workbench-shell { grid-template-columns: 76px minmax(0, 1fr); }
   .workbench-navigation { padding-inline: 9px; }
   .workbench-navigation__brand { justify-content: center; }
@@ -238,7 +248,7 @@
   .work-queue__grid { grid-template-columns: minmax(0, 1fr) 280px; }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 767px) {
   .workbench-shell { display: block; min-height: 100dvh; padding-bottom: 66px; }
   .workbench-navigation { display: none; }
   .workbench-commandbar { min-height: 64px; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 8px 12px; }
@@ -247,9 +257,9 @@
   .workbench-commandbar__search span,
   .workbench-commandbar__search kbd { display: none; }
   .workbench-commandbar__context h1 { font-size: .9375rem; }
-  .workbench-commandbar__search { display: grid; width: 42px; min-height: 42px; grid-template-columns: 1fr; justify-items: center; padding: 8px; }
+  .workbench-commandbar__search { display: grid; width: 44px; min-height: 44px; grid-template-columns: 1fr; justify-items: center; padding: 8px; }
   .workbench-mobile-domains { position: fixed; inset: auto 0 0; z-index: 50; display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--factory-border); background: color-mix(in srgb, var(--factory-surface-raised) 96%, transparent); padding: 6px max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); backdrop-filter: blur(14px); }
-  .workbench-mobile-domains a { display: grid; min-height: 48px; place-items: center; align-content: center; gap: 2px; border-radius: 8px; color: var(--factory-muted); font-size: .625rem; text-decoration: none; }
+  .workbench-mobile-domains a { display: grid; min-height: 48px; place-items: center; align-content: center; gap: 2px; border-radius: 8px; color: var(--factory-muted); font-size: .625rem; text-decoration: none; touch-action: manipulation; }
   .workbench-mobile-domains a[data-active="true"] { background: var(--factory-selection); color: var(--factory-green); font-weight: var(--factory-weight-semibold); }
   .workbench-mobile-domains svg { width: 17px; }
   .work-queue { width: min(100% - 24px, 1380px); padding: 18px 0 28px; }
@@ -262,11 +272,12 @@
   .workbench-command-palette__backdrop { padding: 10px; }
   .workbench-command-palette { width: 100%; max-height: calc(100dvh - 20px); border-radius: 13px; }
   .workbench-command-palette__results { max-height: calc(100dvh - 212px); }
-  .knowledge-library__query { min-width: 220px !important; }
+  .workbench-shell .knowledge-library__query { min-width: 220px; }
   .knowledge-library__query input { width: 100%; min-height: 40px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Accessibility override must win over component-scoped motion declarations. */
   .workbench-shell *,
   .workbench-shell *::before,
   .workbench-shell *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }

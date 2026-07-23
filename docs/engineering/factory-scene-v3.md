@@ -1,7 +1,7 @@
 ---
 title: DocCanvas Factory Scene v3 工程记录
-status: local_export_hotfix_verified_awaiting_release_identity
-updated: 2026-07-16
+status: d9_automated_acceptance_local_verified_d10_pending
+updated: 2026-07-23
 ---
 
 # Factory Scene v3 工程记录
@@ -9,6 +9,8 @@ updated: 2026-07-16
 ## 当前决策
 
 DocCanvas 桌面画布使用 DOM 节点和一个 SVG 关系层，不再使用 React Flow。正式发布不保留双引擎 feature flag；旧 image 只作为事故恢复材料。移动端使用原生纵向流程轨且始终只读。
+
+D6 将桌面表现明确拆成同一场景内核上的两种 presentation：`Map` 为默认的扁平知识地图，保留关系图例、正交管线和结构层级；`Factory` 为显式切换的 2.5D 工厂视图，保留屋顶、房间环境和数字员工。切换不创建第二套 layout、route 或 SVG，模型、layout、scene 和 rendered edge count 必须保持不变。
 
 场景链路为：
 
@@ -32,6 +34,7 @@ DocCanvas graph
 - 语义缩放阈值为 `<0.45` 聚合、`0.45–0.8` 简化、`>0.8` 完整。
 - 视口 overscan 后最多渲染 350 个 DOM 节点与 700 条 SVG 关系路径。
 - `factory-scene-v3` 只迁移旧 viewport、选中模块和展开状态，节点坐标重新布局。
+- Map/Factory 只改变语义文案与材料层；相机、节点身份、路由、选择、tracer、Inspector 和导出仍由同一个 `FactorySceneCanvas` 管理。
 
 ## Owner 数据事务
 
@@ -70,3 +73,37 @@ Owner UI 只在服务端确认 HttpOnly 会话后渲染。mutation 使用 revisi
 - Playwright Chromium/WebKit/移动端：三文档边数、关系 Inspector/一次性 tracer、焦点、reduced motion、Owner CRUD/CAS/restore、安全负例、PNG、独立 SVG 与四关系 presentation fixture、视觉快照。
 - Chromium 规模夹具：1000 scene nodes、2000 relations、FCI ≤2.5s、渲染 ≤350/700、55fps、重路由 p95 ≤50ms。
 - Owner amd64 image smoke 与 Compose config 只能证明 L2 候选，不等于生产验收。
+
+## D6 新鲜验证（2026-07-22）
+
+- 完整 unit/contract：`347/347`；TypeScript 与 production build 通过。
+- Chromium/WebKit：默认 Map、显式 Factory、8/8/8 关系计数不变、关系 Inspector、一次性 tracer 与两份视觉基准通过。
+- Chromium：viewport PNG 与 full-scene SVG 真实下载、独立 SVG 四类关系 presentation 通过。
+- Chromium mobile：纵向关系轨与只读边界通过。
+- 全套 Playwright 的 1000/2000 性能门仍沿用 D5 结论：全套顺序下曾低于 55fps、隔离复跑通过；D6 未放宽阈值，D8 前不能声明全套发布门通过。
+- 本状态是 `local implementation verified`；未 commit、push、构建候选或改变生产。
+
+## D7 响应式新鲜验证（2026-07-23）
+
+- 1280+ 保持完整桌面画布，768–1279 使用紧凑 shell 与右侧 reader drawer，<768 切换为只读纵向关系轨和底部导航。
+- 1024px drawer 经真实浏览器复验为 420px 宽、右/下 12px；修复了继承桌面第二列定位后仅 50px 宽的布局缺陷。
+- 390×844 为 `overflow=0`，五项底部导航目标均为 `75×48px`；节点详情覆盖全视口、标记“只读”、不暴露 Owner 或内容写控件，并使用 overscroll containment。
+- focused contract `40/40`、完整 unit `350/350`、typecheck、production build 与 standalone E2E preparation 通过；Pixel 7 关系轨视觉用例正常复跑 `1/1`；D8 全局 55fps 性能门仍开放。
+- 本状态仍是 `local implementation verified`；未 commit、push、构建候选或改变生产。
+
+## D8 性能与工程治理验证（2026-07-23）
+
+- 1000/2000 基线连续三次为 `50.00–52.94fps`；相机交互改为即时 DOM transform，viewport 与虚拟化查询在 80ms trailing commit，避免每帧 React 重绘可见节点与关系。
+- 隔离连续 `3/3` 通过，最终完整 Playwright 顺序中的规模夹具也通过；55fps、25ms frame p95、50ms reroute p95、2.5s 首次交互和 350/700 渲染上限均未放宽。
+- wheel 改为原生 `{ passive:false }` 监听，真实 Chromium 缩放 console 从 passive-listener error 恢复为 `0/0`。
+- Canvas 记录 zoom、pan、drag、reroute 指标；真实浏览器样本为 zoom handler `0.10ms`、scene materialize/reroute `5.00ms`。
+- Canvas CSS 已从 `globals.css` 迁移到独立 `app/canvas.css`；Canvas 仍通过既有 worker、空间索引和视口虚拟化保持确定性。
+
+## D9 自动化验收（2026-07-23）
+
+- 三内置文档继续满足 model/layout/scene/SVG/hit-path 关系计数一致；关系 Inspector、一次性 tracer、reduced-motion、PNG、full-scene SVG 和四关系 presentation 均在完整套件通过。
+- 1000-node/2000-relation 规模夹具在最终 66-case Playwright 顺序通过，阈值没有放宽。
+- Chromium Desktop 完成隔离 Owner CRUD、stale CAS 与 revision restore；Chromium Mobile 完成只读流程轨、44px 触控和无横向溢出。
+- D9 专项加上既有全套最终为 `45 passed / 21 intentionally skipped / 0 failed`；unit `356/356`、typecheck 和 production build 通过。
+- 本状态只支持本地自动化验收；未 commit、push、构建候选或改变生产。
+- 最终 unit `353/353`、typecheck、production build、Playwright `34 passed / 17 intentionally skipped / 0 failed`；未 commit、push、构建候选或改变生产。

@@ -41,3 +41,34 @@ test('governed workbench restores deep links, browser history and the command pa
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(consoleErrors).toEqual([]);
 });
+
+test('knowledge Library persists view state, roves selection and keeps Inspector and Review evidence synchronized', async ({ page }) => {
+  await page.goto(`/?view=knowledge&object=${context7}&sort=title&density=compact&layout=grid`);
+
+  const listbox = page.getByRole('listbox', { name: '知识对象列表' });
+  await expect(listbox).toHaveAttribute('data-density', 'compact');
+  await expect(listbox).toHaveAttribute('data-layout', 'grid');
+  await expect(page.getByRole('combobox', { name: '排序' })).toHaveValue('title');
+
+  const selected = listbox.getByRole('option', { selected: true });
+  const selectedId = await selected.getAttribute('id');
+  await selected.focus();
+  await page.keyboard.press('ArrowDown');
+  const nextSelected = listbox.getByRole('option', { selected: true });
+  await expect(nextSelected).not.toHaveAttribute('id', selectedId ?? '');
+  await expect(page).toHaveURL(/view=knowledge.*object=/u);
+  await expect(page.getByRole('complementary', { name: '知识对象详情' }).getByRole('heading', { level: 2 }))
+    .toHaveText((await nextSelected.locator('.knowledge-row__body > strong').innerText()));
+
+  await page.reload();
+  await expect(listbox).toHaveAttribute('data-density', 'compact');
+  await expect(listbox).toHaveAttribute('data-layout', 'grid');
+  await expect(page.getByRole('combobox', { name: '排序' })).toHaveValue('title');
+  await expect(page.getByLabel('可信度、边界与下一动作')).toContainText('下一允许动作');
+
+  await page.getByRole('link', { name: /进入 Review/u }).click();
+  await expect(page).toHaveURL(/view=review.*object=/u);
+  await expect(page.getByRole('complementary', { name: '来源证据' })).toBeVisible();
+  await expect(page.getByRole('main', { name: '字段差异与候选修订' })).toBeVisible();
+  await expect(page.getByLabel('当前字段差异')).toContainText('当前候选与已保存 revision 一致');
+});

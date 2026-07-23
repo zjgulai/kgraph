@@ -11,17 +11,19 @@ interface Props {
   className?: string;
   backdropClassName?: string;
   initialFocusRef?: React.RefObject<HTMLElement | null>;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
   onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
   children: React.ReactNode;
 }
 
-export function Dialog({ open, titleId, descriptionId, onClose, className, backdropClassName, initialFocusRef, onKeyDown: onDialogKeyDown, children }: Props) {
+export function Dialog({ open, titleId, descriptionId, onClose, className, backdropClassName, initialFocusRef, returnFocusRef, onKeyDown: onDialogKeyDown, children }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const explicitReturnTarget = returnFocusRef?.current ?? null;
     const frame = window.requestAnimationFrame(() => {
       const fallback = dialogRef.current?.querySelector<HTMLElement>('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])');
       (initialFocusRef?.current ?? fallback)?.focus();
@@ -31,9 +33,11 @@ export function Dialog({ open, titleId, descriptionId, onClose, className, backd
     return () => {
       window.cancelAnimationFrame(frame);
       document.body.style.overflow = priorOverflow;
-      previousFocusRef.current?.focus();
+      const returnTarget = explicitReturnTarget ?? previousFocusRef.current;
+      returnTarget?.focus({ preventScroll: true });
+      window.setTimeout(() => returnTarget?.focus({ preventScroll: true }), 0);
     };
-  }, [initialFocusRef, open]);
+  }, [initialFocusRef, open, returnFocusRef]);
 
   if (!open) return null;
 

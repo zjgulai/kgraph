@@ -1,8 +1,8 @@
 ---
 title: DocCanvas Governed Workbench Design Contract
-status: approved-direction
-version: 2.1-d3
-updated: 2026-07-22
+status: ui098-preflight-batch-1-candidate-blocked
+version: 2.3-ui098-preflight
+updated: 2026-07-23
 applies_to: DocCanvas product shell, workspaces, canvas, exports, responsive UI
 production: unchanged
 ---
@@ -107,7 +107,7 @@ DocCanvas 是面向 Knowledge Owner、AI 产品负责人、Reviewer 和工程运
 
 ## 4. Components and States
 
-Implementation status (2026-07-22): the D2 primitive layer is available under `components/ui/`; D3 provides the local Capture → Library → Review → Canvas core flow; D4 provides Product Task → Solution → Blueprint → Artifact provenance. D5 now provides a local Evidence Registry, Registry-derived readiness, unified bitemporal Timeline and read-only Provider Ops. The global 1000/2000 Canvas performance benchmark remains order/load-sensitive under the full suite, so the complete redesign is not yet accepted; Canvas and remaining governance surfaces continue in D6-D8.
+Implementation status (2026-07-23): D2–D5 provide primitives, the Knowledge and Product object chains, Evidence Registry, bitemporal Timeline and read-only Provider Ops. D6–D8 provide Map/Factory, responsive mobile readonly behavior, route splitting, CSS ownership, telemetry and a stable 1000/2000 Canvas performance pass without lowering the 55fps threshold. D9 completed local automated acceptance; moderated users and assistive-technology sessions remain an explicit evidence limit. D10/UI-097 documents the product logic and role manual. UI-014、UI-022–025、UI-072/073 are now complete or reaccepted in the local worktree: Library state is shareable and virtualized, Inspector is evidence-first, and Review is queue/source/diff with field locators. The fresh full Chromium/WebKit/mobile Playwright sequence passed `50/22/0`; source checkpoint preparation may proceed, while staging, commit, push, candidate and production remain unchanged.
 
 ### 4.1 Primitive set
 
@@ -307,5 +307,6 @@ Rules:
 - 当前 UI inventory：`docs/engineering/governed-workbench-ui-inventory.md`
 - 重构计划：`docs/superpowers/plans/2026-07-22-doccanvas-governed-workspace-ui-interaction-redesign-plan.md`
 - Canvas 工程契约：`docs/engineering/factory-scene-v3.md`
+- 产品复盘与角色手册：`docs/product/doccanvas-product-review-and-role-manual.html`
 
 若实现与本文件冲突，必须先明确修订设计契约，不能静默形成第二套规则。

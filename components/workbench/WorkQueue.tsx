@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowRight, Clock3, FileCheck2, LockKeyhole } from 'luci
 import { AsyncState } from '@/components/ui/AsyncState';
 import { StatusBadge, type StatusTone } from '@/components/ui/StatusBadge';
 import type { ProductOperationsProjection, WorkflowState } from '@/lib/product/operations-projection';
+import { governanceGateLabel, humanizeGovernanceText, workflowLabel } from '@/lib/presentation/human-labels';
 import {
   withWorkbenchView,
   workbenchHref,
@@ -66,12 +67,12 @@ export function WorkQueue({ route, projection, onNavigate }: Props) {
             const blocked = stage.state === 'blocked';
             return <li key={stage.id} data-state={stage.state}>
               <span>{String(index + 1).padStart(2, '0')}</span>
-              <div><StatusBadge tone={stateTone[stage.state]}>{stateLabel[stage.state]}</StatusBadge><h3>{stage.label}</h3><p>{stage.evidence}</p>{stage.humanGate ? <code>{stage.humanGate}</code> : null}</div>
+              <div><StatusBadge tone={stateTone[stage.state]}>{stateLabel[stage.state]}</StatusBadge><h3>{workflowLabel(stage.id, stage.label)}</h3><p>{humanizeGovernanceText(stage.evidence)}</p>{stage.humanGate ? <small className="work-queue__gate">治理门：{governanceGateLabel(stage.humanGate)}</small> : null}</div>
               <a href={workbenchHref(target)} onClick={event => {
                 if (!isPlainPrimaryClick(event)) return;
                 event.preventDefault();
                 onNavigate(target);
-              }} aria-label={`打开${stage.label}`}>
+              }} aria-label={`打开${workflowLabel(stage.id, stage.label)}`}>
                 {blocked ? <LockKeyhole aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
               </a>
             </li>;
@@ -81,10 +82,10 @@ export function WorkQueue({ route, projection, onNavigate }: Props) {
         <aside className="work-queue__evidence" aria-label="证据概览">
           <header><FileCheck2 aria-hidden="true" /><div><span>当前基线</span><strong>证据概览</strong></div></header>
           <dl>
-            <div><dt>Knowledge Objects</dt><dd>{projection.generatedFrom.knowledgeObjectCount}</dd></div>
-            <div><dt>Blueprints</dt><dd>{projection.generatedFrom.blueprintCount}</dd></div>
-            <div><dt>Artifacts</dt><dd>{projection.generatedFrom.artifactCount}</dd></div>
-            <div><dt>Registry Evidence</dt><dd>{projection.evidenceRegistry.stats.total}</dd></div>
+            <div><dt>知识对象</dt><dd>{projection.generatedFrom.knowledgeObjectCount}</dd></div>
+            <div><dt>Blueprint</dt><dd>{projection.generatedFrom.blueprintCount}</dd></div>
+            <div><dt>编译产物</dt><dd>{projection.generatedFrom.artifactCount}</dd></div>
+            <div><dt>注册证据</dt><dd>{projection.evidenceRegistry.stats.total}</dd></div>
           </dl>
           <section><AlertTriangle aria-hidden="true" /><div><strong>边界保持</strong><p>Production 状态仍由精确发布证据和独立授权决定，不能从本页面推断。</p></div></section>
           <footer><span>PACK</span><code>{projection.generatedFrom.knowledgePackHash.slice(0, 24)}</code></footer>

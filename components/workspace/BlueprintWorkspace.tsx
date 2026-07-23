@@ -3,6 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Boxes, CheckCircle2, CircleAlert, Download, FileClock, LoaderCircle, RefreshCw, Save, ShieldAlert, Workflow } from 'lucide-react';
 import { OwnerSessionControl } from '@/components/canvas/OwnerSessionControl';
+import { MutationStatus, type MutationStatusKind } from '@/components/ui/MutationStatus';
+import { governanceGateLabel, humanLabel } from '@/lib/presentation/human-labels';
 import type { BlueprintCandidateRecord, BlueprintCandidateSummary } from '@/lib/server/blueprint-workspace-store';
 import type { ProductBlueprint } from '../../../scripts/lib/blueprint-contract';
 import type { WritePolicy } from '@/lib/server/write-guard';
@@ -21,6 +23,7 @@ interface Props {
   initialBlueprintId?: string | null;
   initialRevision?: number | null;
   chain?: ProductChainProjection | null;
+  onDirtyChange?: (dirty: boolean) => void;
   onBlueprintSelected?: (blueprintId: string) => void;
   onArtifactCompiled?: () => void;
 }
@@ -39,7 +42,7 @@ function useMobileReadonly() {
 
 type BlueprintSection = 'task' | 'solution' | 'governance' | 'history';
 
-export function BlueprintWorkspace({ writePolicy, initialBlueprintId, initialRevision, chain, onBlueprintSelected, onArtifactCompiled }: Props) {
+export function BlueprintWorkspace({ writePolicy, initialBlueprintId, initialRevision, chain, onDirtyChange, onBlueprintSelected, onArtifactCompiled }: Props) {
   const [items, setItems] = useState<BlueprintCandidateSummary[]>([]);
   const [selectedId, setSelectedId] = useState(initialBlueprintId ?? '');
   const [record, setRecord] = useState<BlueprintCandidateRecord | null>(null);
@@ -56,6 +59,15 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, initialRev
   const mobile = useMobileReadonly();
   const canEdit = writePolicy.writable && ownerAuthenticated && !mobile;
   const dirty = useMemo(() => Boolean(record && draft && JSON.stringify(record.blueprint) !== JSON.stringify(draft)), [draft, record]);
+  const mutationState: MutationStatusKind = busy
+    ? 'saving'
+    : dirty
+      ? 'dirty'
+      : /失败|阻断|变化/u.test(status)
+        ? 'failed'
+        : /已保存|已批准|create-only 保存/u.test(status)
+          ? 'saved'
+          : 'draft';
 
   const loadList = useCallback(async () => {
     const response = await fetch('/api/blueprints', { cache: 'no-store', credentials: 'same-origin' });
@@ -121,6 +133,7 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, initialRev
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => {
     if (!record || !draft || !dirty) return;
     window.localStorage.setItem(blueprintDraftStorageKey(record.blueprintId), serializeBlueprintDraft({
@@ -301,8 +314,8 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, initialRev
           <header><Boxes aria-hidden="true" /><div><span>CANDIDATES</span><strong>{items.length}</strong></div><button type="button" onClick={() => void loadList()} aria-label="刷新 Blueprint 列表"><RefreshCw aria-hidden="true" /></button></header>
           {items.length ? <ol>{items.map(item => <li key={item.blueprintId}>
             <button type="button" data-selected={selectedId === item.blueprintId} onClick={() => select(item.blueprintId)}>
-              <span>{item.status} · R{item.revision}</span><strong>{item.productName}</strong><code>{item.blueprintId}</code>
-              <small>{item.compileReady ? <><CheckCircle2 aria-hidden="true" />compile ready</> : <><CircleAlert aria-hidden="true" />governance pending</>}</small>
+              <span>{humanLabel(item.status)} · R{item.revision}</span><strong>{item.productName}</strong><code>{item.blueprintId}</code>
+              <small>{item.compileReady ? <><CheckCircle2 aria-hidden="true" />可生成编译预览</> : <><CircleAlert aria-hidden="true" />等待治理条件</>}</small>
             </button>
           </li>)}</ol> : <p>尚无 Blueprint。先在 Solution Studio 保存候选方案。</p>}
         </aside>
@@ -311,7 +324,7 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, initialRev
           {busy && !record ? <div className="blueprint-empty"><LoaderCircle className="animate-spin" aria-hidden="true" />加载 Blueprint…</div> : record && draft ? <>
             <header>
               <div><span>PRODUCT BLUEPRINT / R{record.revision}</span><h2>{draft.product_task.product_name}</h2><code>{record.blueprintId}</code></div>
-              <div><em data-status={draft.status}>{draft.status}</em><code>{record.documentHash.slice(0, 24)}…</code></div>
+              <div><em data-status={draft.status}>{humanLabel(draft.status)}</em><code>{record.documentHash.slice(0, 24)}…</code></div>
             </header>
 
             <nav className="blueprint-section-nav" aria-label="Blueprint sections">
@@ -324,7 +337,7 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, initialRev
             </section> : canEdit ? <form className="blueprint-editor" onSubmit={event => { event.preventDefault(); void save(); }}>
               {section === 'task' ? <fieldset>
                 <legend>01 / Product Task</legend>
-                <label>候选状态{draft.status === 'draft' || draft.status === 'review' ? <select value={draft.status} onChange={event => setDraft(current => current ? { ...current, status: event.target.value as 'draft' | 'review' } : current)}><option value="draft">draft</option><option value="review">review</option></select> : <input value={draft.status} readOnly aria-label="已治理 Blueprint 状态" />}</label>
+                <label>候选状态{draft.status === 'draft' || draft.status === 'review' ? <select value={draft.status} onChange={event => setDraft(current => current ? { ...current, status: event.target.value as 'draft' | 'review' } : current)}><option value="draft">{humanLabel('draft')}</option><option value="review">{humanLabel('review')}</option></select> : <input value={humanLabel(draft.status)} readOnly aria-label="已治理 Blueprint 状态" />}</label>
                 <label>知识基线<input value={draft.base_knowledge_revision} readOnly /></label>
                 <label className="is-wide">目标<textarea rows={3} value={draft.product_task.goal} onChange={event => updateTask('goal', event.target.value)} /></label>
                 <label className="is-wide">问题<textarea rows={3} value={draft.product_task.problem} onChange={event => updateTask('problem', event.target.value)} /></label>
@@ -348,14 +361,14 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, initialRev
               {section === 'governance' ? <fieldset>
                 <legend>04 / 治理、批准与编译</legend>
                 <label>主方案<select value={draft.decision.primary_option_id ?? ''} onChange={event => setDraft(current => current ? { ...current, decision: { ...current.decision, primary_option_id: event.target.value || null } } : current)}><option value="">未选择</option>{draft.options.map(option => <option key={option.option_id} value={option.option_id}>{option.title}</option>)}</select></label>
-                <label>证据结论<select value={draft.evidence_matrix[0]?.status ?? 'insufficient'} onChange={event => setDraft(current => current ? { ...current, evidence_matrix: current.evidence_matrix.map((item, index) => index === 0 ? { ...item, status: event.target.value as typeof item.status } : item) } : current)}>{['insufficient', 'supported', 'mixed', 'contradicted'].map(value => <option key={value}>{value}</option>)}</select></label>
-                {draft.constraints.hard_gates.map((gate, index) => <React.Fragment key={gate.gate_id}><label>硬门判据<input value={gate.criterion} onChange={event => setDraft(current => current ? { ...current, constraints: { ...current.constraints, hard_gates: current.constraints.hard_gates.map((item, gateIndex) => gateIndex === index ? { ...item, criterion: event.target.value } : item) } } : current)} /></label><label>硬门结果<select value={gate.result} onChange={event => setDraft(current => current ? { ...current, constraints: { ...current.constraints, hard_gates: current.constraints.hard_gates.map((item, gateIndex) => gateIndex === index ? { ...item, result: event.target.value as typeof item.result } : item) } } : current)}>{['pending', 'pass', 'fail', 'not_applicable'].map(value => <option key={value}>{value}</option>)}</select></label></React.Fragment>)}
-                {draft.options.map((option, index) => <label key={option.option_id}>{option.title} gate<select value={option.hard_gate_result} onChange={event => setDraft(current => current ? { ...current, options: current.options.map((item, optionIndex) => optionIndex === index ? { ...item, hard_gate_result: event.target.value as typeof item.hard_gate_result } : item) } : current)}>{['pending', 'pass', 'fail'].map(value => <option key={value}>{value}</option>)}</select></label>)}
+                <label>证据结论<select value={draft.evidence_matrix[0]?.status ?? 'insufficient'} onChange={event => setDraft(current => current ? { ...current, evidence_matrix: current.evidence_matrix.map((item, index) => index === 0 ? { ...item, status: event.target.value as typeof item.status } : item) } : current)}>{['insufficient', 'supported', 'mixed', 'contradicted'].map(value => <option key={value} value={value}>{humanLabel(value)}</option>)}</select></label>
+                {draft.constraints.hard_gates.map((gate, index) => <React.Fragment key={gate.gate_id}><label>硬门判据<input value={gate.criterion} onChange={event => setDraft(current => current ? { ...current, constraints: { ...current.constraints, hard_gates: current.constraints.hard_gates.map((item, gateIndex) => gateIndex === index ? { ...item, criterion: event.target.value } : item) } } : current)} /></label><label>硬门结果<select value={gate.result} onChange={event => setDraft(current => current ? { ...current, constraints: { ...current.constraints, hard_gates: current.constraints.hard_gates.map((item, gateIndex) => gateIndex === index ? { ...item, result: event.target.value as typeof item.result } : item) } } : current)}>{['pending', 'pass', 'fail', 'not_applicable'].map(value => <option key={value} value={value}>{humanLabel(value)}</option>)}</select></label></React.Fragment>)}
+                {draft.options.map((option, index) => <label key={option.option_id}>{option.title} gate<select value={option.hard_gate_result} onChange={event => setDraft(current => current ? { ...current, options: current.options.map((item, optionIndex) => optionIndex === index ? { ...item, hard_gate_result: event.target.value as typeof item.hard_gate_result } : item) } : current)}>{['pending', 'pass', 'fail'].map(value => <option key={value} value={value}>{humanLabel(value)}</option>)}</select></label>)}
                 <label className="is-wide">批准理由<textarea rows={3} value={approvalRationale} onChange={event => setApprovalRationale(event.target.value)} /></label>
                 <p className="blueprint-execution-state">Execution spec：{draft.execution ? '已提供' : '缺失，批准与编译保持 BLOCK'}</p>
               </fieldset> : null}
               <footer>
-                <p>{dirty ? '存在未保存 Blueprint 草稿' : '当前表单与 revision 一致'}</p>
+                <MutationStatus state={mutationState} detail={status || (dirty ? '修改保存在浏览器草稿区，尚未产生新修订。' : '当前表单与已保存修订一致。')} />
                 <button type="button" disabled={!dirty || busy} onClick={() => { setDraft(structuredClone(record.blueprint)); window.localStorage.removeItem(blueprintDraftStorageKey(record.blueprintId)); }}>放弃草稿</button>
                 <button type="submit" disabled={!dirty || busy}><Save aria-hidden="true" />保存 revision</button>
                 <button type="button" disabled={dirty || busy || draft.status !== 'review' || !draft.decision.primary_option_id} onClick={() => void approve()}><CheckCircle2 aria-hidden="true" />批准 Blueprint</button>
@@ -366,10 +379,10 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, initialRev
             </form> : <section className="blueprint-readonly">
               <h3>{mobile ? '移动端只读 Blueprint' : writePolicy.mode === 'readonly' ? '当前环境只读' : '请先解锁 Owner 会话'}</h3>
               <p>{draft.product_task.goal}</p>
-              <dl><div><dt>状态</dt><dd>{draft.status}</dd></div><div><dt>方案</dt><dd>{draft.options.length}</dd></div><div><dt>证据</dt><dd>{draft.evidence_matrix.flatMap(item => item.evidence_ids).length}</dd></div><div><dt>修订</dt><dd>R{record.revision}</dd></div></dl>
+              <dl><div><dt>状态</dt><dd>{humanLabel(draft.status)}</dd></div><div><dt>方案</dt><dd>{draft.options.length}</dd></div><div><dt>证据</dt><dd>{draft.evidence_matrix.flatMap(item => item.evidence_ids).length}</dd></div><div><dt>修订</dt><dd>R{record.revision}</dd></div></dl>
             </section>}
 
-            {status ? <p className="blueprint-dossier__status" role="status">{status}</p> : null}
+            {status && !canEdit ? <p className="blueprint-dossier__status" role="status">{status}</p> : null}
             {preview ? <section className="compile-preview" aria-label="编译预览"><h3>Compile Preview</h3><dl><div><dt>Input hash</dt><dd><code>{preview.inputHash}</code></dd></div><div><dt>Task</dt><dd>{preview.productTaskId}</dd></div><div><dt>Artifact key</dt><dd>{preview.artifactKey}</dd></div><div><dt>Outputs</dt><dd>{preview.outputs.join(' · ')}</dd></div><div><dt>Compiler</dt><dd>{preview.compilerVersion}</dd></div><div><dt>写入状态</dt><dd>尚未创建</dd></div></dl></section> : null}
           </> : <div className="blueprint-empty"><Workflow aria-hidden="true" />{status || '请选择 Blueprint，或先在 Solution Studio 创建候选。'}</div>}
         </main>
@@ -380,7 +393,7 @@ export function BlueprintWorkspace({ writePolicy, initialBlueprintId, initialRev
             <section>
               <h3>编译准备度</h3>
               <p data-ready={record.blueprint.status === 'approved' && Boolean(record.blueprint.execution)}>{record.blueprint.status === 'approved' && record.blueprint.execution ? '已满足结构前置条件' : 'BLOCK · 等待批准与 execution spec'}</p>
-              <ul>{record.blueprint.human_gates.map(gate => <li key={gate.gate_id}><span>{gate.status ?? 'pending'}</span><strong>{gate.decision}</strong><small>{gate.required_before}</small></li>)}</ul>
+              <ul>{record.blueprint.human_gates.map(gate => <li key={gate.gate_id}><span>{humanLabel(gate.status ?? 'pending')}</span><strong>{gate.decision}</strong><small>{governanceGateLabel(gate.required_before)}</small></li>)}</ul>
             </section>
             <section>
               <h3>Revision ledger</h3>

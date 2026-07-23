@@ -36,6 +36,8 @@ import {
   serializeReviewDraft,
   type ReviewConflictChoices,
 } from '@/lib/knowledge/workspace-drafts';
+import { humanLabel } from '@/lib/presentation/human-labels';
+import { MutationStatus, type MutationStatusKind } from '@/components/ui/MutationStatus';
 
 interface ReviewPayload extends KnowledgeReviewRecord {
   revisions: KnowledgeReviewRevision[];
@@ -46,6 +48,7 @@ interface Props {
   writePolicy: WritePolicy;
   initialObjectId?: string | null;
   onSelectKnowledge: (objectId: string) => void;
+  onReviewObjectSelected?: (objectId: string) => void;
   onLibraryItemUpdated?: (item: KnowledgeLibraryItem) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }
@@ -65,6 +68,10 @@ const conflictFieldLabels: Partial<Record<keyof KnowledgeReviewPatch, string>> =
 
 function displayConflictValue(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
+function FieldEvidence({ field, locator }: { field: string; locator: string }) {
+  return <small className="review-field-evidence" data-field={field} data-evidence-locator={locator}>证据定位 · {locator}</small>;
 }
 
 const formOptions = {
@@ -118,7 +125,7 @@ function useMobileReview(): boolean {
   return isMobile;
 }
 
-export function KnowledgeReviewWorkspace({ library, writePolicy, initialObjectId, onSelectKnowledge, onLibraryItemUpdated, onDirtyChange }: Props) {
+export function KnowledgeReviewWorkspace({ library, writePolicy, initialObjectId, onSelectKnowledge, onReviewObjectSelected, onLibraryItemUpdated, onDirtyChange }: Props) {
   const [selectedId, setSelectedId] = useState(
     initialObjectId && library.items.some(item => item.objectId === initialObjectId)
       ? initialObjectId
@@ -158,11 +165,31 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, initialObjectId
     return JSON.stringify(draft) !== JSON.stringify(patchFromObject(record.object));
   }, [draft, record]);
   const draftBody = useMemo(() => splitKnowledgeBody(draft?.body ?? ''), [draft?.body]);
+  const sourceBody = useMemo(() => splitKnowledgeBody(record?.object.body ?? ''), [record?.object.body]);
+  const changedFields = useMemo(() => {
+    if (!record || !draft) return [];
+    const base = patchFromObject(record.object);
+    return (Object.keys(base) as Array<keyof KnowledgeReviewPatch>)
+      .filter(key => JSON.stringify(base[key]) !== JSON.stringify(draft[key]))
+      .map(key => ({ key, label: conflictFieldLabels[key] ?? key }));
+  }, [draft, record]);
+  const evidenceLocator = draft?.source_refs[0]?.locator || record?.object.source_refs[0]?.locator || 'locator unavailable';
   const migrationStatus = useMemo(() => ({
     total: queueState.length,
     initialized: queueState.filter(item => item.initialized).length,
     unresolved: queueState.reduce((total, item) => total + Math.max(0, item.reviewReasonCount - item.resolvedReviewCount), 0),
   }), [queueState]);
+  const mutationState: MutationStatusKind = conflict
+    ? 'conflict'
+    : saving
+      ? 'saving'
+      : dirty
+        ? 'dirty'
+        : /失败|不可用/u.test(status)
+          ? 'failed'
+          : /已保存|已采用|已放弃/u.test(status)
+            ? 'saved'
+            : 'draft';
 
   const loadRecord = useCallback(async (objectId: string) => {
     if (!objectId) return;
@@ -328,6 +355,7 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, initialObjectId
     if (objectId === selectedId) return;
     if (dirty && !window.confirm('当前对象有未保存草稿，已保存在本地。仍要切换对象？')) return;
     setSelectedId(objectId);
+    onReviewObjectSelected?.(objectId);
   };
   const returnToLibrary = () => {
     if (dirty && !window.confirm('当前对象有未保存草稿，已保存在本地。仍要返回 Library？')) return;
@@ -389,7 +417,7 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, initialObjectId
                   onClick={() => selectRecord(summary.objectId)}
                 >
                   <span>{String(index + 1).padStart(2, '0')}</span>
-                  <span><strong>{summary.title}</strong><small>{item?.knowledgeForm} · {item?.legacy.category}{summary.initialized ? ` · saved R${summary.revision}` : ' · seed'}</small></span>
+                  <span><strong>{summary.title}</strong><small>{humanLabel(item?.knowledgeForm, item?.knowledgeForm)} · {humanLabel(item?.legacy.category, item?.legacy.category)}{summary.initialized ? ` · 已保存 R${summary.revision}` : ' · 初始候选'}</small></span>
                   <em>{summary.reviewReasonCount - summary.resolvedReviewCount}</em>
                 </button>
               </div>
@@ -397,7 +425,32 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, initialObjectId
           </div>
         </aside>
 
-        <main className="review-dossier" aria-label="知识对象复核档案">
+        <aside className="review-source" aria-label="来源证据">
+          <header><BookOpenCheck aria-hidden="true" /><div><span>SOURCE / IMMUTABLE</span><strong>来源证据</strong></div></header>
+          {record ? (
+            <>
+              <section>
+                <small>原始标题</small>
+                <h2>{record.object.title}</h2>
+                <p>{sourceBody.narrative || '当前来源没有可显示的叙述正文。'}</p>
+              </section>
+              <dl>
+                <div><dt>Locator</dt><dd>{record.object.source_refs[0]?.locator ?? '未提供'}</dd></div>
+                <div><dt>Source URI</dt><dd>{record.object.source_refs[0]?.source_uri ?? '未提供'}</dd></div>
+                <div><dt>Snapshot</dt><dd>{record.object.source_refs[0]?.snapshot_hash ?? '未提供'}</dd></div>
+                <div><dt>Observed</dt><dd>{record.object.source_refs[0]?.observed_at ?? record.object.observed_at}</dd></div>
+                <div><dt>Valid time</dt><dd>{record.object.valid_time?.from ?? '开放／未知'} → {record.object.valid_time?.until ?? '开放'}</dd></div>
+                <div><dt>Authority</dt><dd>{humanLabel(record.object.source_refs[0]?.authority_origin)}</dd></div>
+              </dl>
+              <section className="review-source__reasons">
+                <h3>当前复核依据</h3>
+                <ul>{record.reviewReasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
+              </section>
+            </>
+          ) : <p>选择对象后显示不可编辑的来源快照。</p>}
+        </aside>
+
+        <main className="review-dossier" aria-label="字段差异与候选修订">
           {loading ? (
             <div className="review-dossier__loading" role="status"><LoaderCircle className="animate-spin" aria-hidden="true" />加载复核档案…</div>
           ) : record && draft ? (
@@ -419,6 +472,13 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, initialObjectId
 
               <section className="review-dossier__alerts">
                 {record.reviewReasons.map(reason => <p key={reason} data-resolved={record.resolvedReviewReasons.includes(reason)}><CircleAlert aria-hidden="true" />{reason}</p>)}
+              </section>
+
+              <section className="review-diff-summary" aria-label="当前字段差异">
+                <header><span>DIFF</span><strong>{changedFields.length} 个字段已修改</strong></header>
+                {changedFields.length > 0
+                  ? <ul>{changedFields.map(field => <li key={field.key}>{field.label}<FieldEvidence field={field.key} locator={evidenceLocator} /></li>)}</ul>
+                  : <p>当前候选与已保存 revision 一致。</p>}
               </section>
 
               {conflict ? (
@@ -446,8 +506,8 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, initialObjectId
                 <form className="review-editor" onSubmit={event => { event.preventDefault(); void save(); }}>
                   <fieldset>
                     <legend>01 / 核心表达</legend>
-                    <label>标题<input value={draft.title} onChange={event => updateDraft('title', event.target.value)} /></label>
-                    <label className="is-wide">正文<textarea rows={8} value={draftBody.narrative} onChange={event => updateDraft('body', mergeKnowledgeBody(event.target.value, draftBody.legacySnapshot))} /></label>
+                    <label><span>标题</span><FieldEvidence field="title" locator={evidenceLocator} /><input value={draft.title} onChange={event => updateDraft('title', event.target.value)} /></label>
+                    <label className="is-wide"><span>正文</span><FieldEvidence field="body" locator={evidenceLocator} /><textarea rows={8} value={draftBody.narrative} onChange={event => updateDraft('body', mergeKnowledgeBody(event.target.value, draftBody.legacySnapshot))} /></label>
                     {draftBody.legacySnapshot ? (
                       <div className="review-editor__immutable is-wide" aria-label="Legacy structured snapshot 只读保留">
                         <div><dt>Legacy snapshot</dt><dd>只读保留 · 来源迁移证据不可在 Review 中改写</dd></div>
@@ -457,32 +517,32 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, initialObjectId
 
                   <fieldset>
                     <legend>02 / 分类与成熟度</legend>
-                    <label>知识形态<select value={draft.knowledge_form.primary} onChange={event => updateDraft('knowledge_form', { ...draft.knowledge_form, primary: event.target.value as typeof draft.knowledge_form.primary })}>{formOptions.knowledgeForms.map(value => <option key={value}>{value}</option>)}</select></label>
-                    <label>子形态<input value={draft.knowledge_form.subforms.join(', ')} onChange={event => updateDraft('knowledge_form', { ...draft.knowledge_form, subforms: optionalList(event.target.value) as typeof draft.knowledge_form.subforms ?? [] })} /></label>
-                    <label>领域<input value={draft.domain_refs.join(', ')} onChange={event => updateDraft('domain_refs', optionalList(event.target.value) ?? [])} /></label>
-                    <label>资产成熟度<select value={draft.asset_maturity} onChange={event => updateDraft('asset_maturity', event.target.value as typeof draft.asset_maturity)}>{formOptions.assetMaturities.map(value => <option key={value}>{value}</option>)}</select></label>
-                    <label>证据等级<select value={draft.evidence_grade} onChange={event => updateDraft('evidence_grade', event.target.value as typeof draft.evidence_grade)}>{formOptions.evidenceGrades.map(value => <option key={value}>{value}</option>)}</select></label>
-                    <label>产品阶段 1–8<input value={(draft.usage_context?.lifecycle_stages ?? []).join(', ')} onChange={event => updateDraft('usage_context', { ...draft.usage_context, lifecycle_stages: optionalStages(event.target.value) })} /></label>
+                    <label><span>知识形态</span><FieldEvidence field="knowledge_form" locator={evidenceLocator} /><select value={draft.knowledge_form.primary} onChange={event => updateDraft('knowledge_form', { ...draft.knowledge_form, primary: event.target.value as typeof draft.knowledge_form.primary })}>{formOptions.knowledgeForms.map(value => <option key={value} value={value}>{humanLabel(value)}</option>)}</select></label>
+                    <label><span>子形态</span><FieldEvidence field="knowledge_form.subforms" locator={evidenceLocator} /><input value={draft.knowledge_form.subforms.join(', ')} onChange={event => updateDraft('knowledge_form', { ...draft.knowledge_form, subforms: optionalList(event.target.value) as typeof draft.knowledge_form.subforms ?? [] })} /></label>
+                    <label><span>领域</span><FieldEvidence field="domain_refs" locator={evidenceLocator} /><input value={draft.domain_refs.join(', ')} onChange={event => updateDraft('domain_refs', optionalList(event.target.value) ?? [])} /></label>
+                    <label><span>资产成熟度</span><FieldEvidence field="asset_maturity" locator={evidenceLocator} /><select value={draft.asset_maturity} onChange={event => updateDraft('asset_maturity', event.target.value as typeof draft.asset_maturity)}>{formOptions.assetMaturities.map(value => <option key={value} value={value}>{humanLabel(value)}</option>)}</select></label>
+                    <label><span>证据等级</span><FieldEvidence field="evidence_grade" locator={evidenceLocator} /><select value={draft.evidence_grade} onChange={event => updateDraft('evidence_grade', event.target.value as typeof draft.evidence_grade)}>{formOptions.evidenceGrades.map(value => <option key={value} value={value}>{humanLabel(value)}</option>)}</select></label>
+                    <label><span>产品阶段 1–8</span><FieldEvidence field="usage_context.lifecycle_stages" locator={evidenceLocator} /><input value={(draft.usage_context?.lifecycle_stages ?? []).join(', ')} onChange={event => updateDraft('usage_context', { ...draft.usage_context, lifecycle_stages: optionalStages(event.target.value) })} /></label>
                   </fieldset>
 
                   <fieldset>
                     <legend>03 / 双时态</legend>
-                    <label>系统获知<input value={draft.observed_at} onChange={event => updateDraft('observed_at', event.target.value)} /></label>
-                    <label>现实有效起点<input value={draft.valid_time?.from ?? ''} onChange={event => updateDraft('valid_time', { from: event.target.value || null, until: draft.valid_time?.until ?? null })} placeholder="带时区 ISO 8601 或留空" /></label>
-                    <label>现实有效终点<input value={draft.valid_time?.until ?? ''} onChange={event => updateDraft('valid_time', { from: draft.valid_time?.from ?? null, until: event.target.value || null })} placeholder="开放区间，可留空" /></label>
+                    <label><span>系统获知</span><FieldEvidence field="observed_at" locator={evidenceLocator} /><input value={draft.observed_at} onChange={event => updateDraft('observed_at', event.target.value)} /></label>
+                    <label><span>现实有效起点</span><FieldEvidence field="valid_time.from" locator={evidenceLocator} /><input value={draft.valid_time?.from ?? ''} onChange={event => updateDraft('valid_time', { from: event.target.value || null, until: draft.valid_time?.until ?? null })} placeholder="带时区 ISO 8601 或留空" /></label>
+                    <label><span>现实有效终点</span><FieldEvidence field="valid_time.until" locator={evidenceLocator} /><input value={draft.valid_time?.until ?? ''} onChange={event => updateDraft('valid_time', { from: draft.valid_time?.from ?? null, until: event.target.value || null })} placeholder="开放区间，可留空" /></label>
                   </fieldset>
 
                   <fieldset>
                     <legend>04 / 来源证据</legend>
-                    <label className="is-wide">来源 URI<input value={draft.source_refs[0]?.source_uri ?? ''} onChange={event => updateDraft('source_refs', draft.source_refs.map((source, index) => index === 0 ? { ...source, source_uri: event.target.value } : source))} /></label>
-                    <label>来源观察时间<input value={draft.source_refs[0]?.observed_at ?? ''} onChange={event => updateDraft('source_refs', draft.source_refs.map((source, index) => index === 0 ? { ...source, observed_at: event.target.value } : source))} /></label>
-                    <label>权威来源<select value={draft.source_refs[0]?.authority_origin ?? ''} onChange={event => updateDraft('source_refs', draft.source_refs.map((source, index) => index === 0 ? { ...source, authority_origin: event.target.value as typeof source.authority_origin } : source))}>{formOptions.authorityOrigins.map(value => <option key={value}>{value}</option>)}</select></label>
-                    <label>许可状态<select value={draft.source_refs[0]?.license_status ?? ''} onChange={event => updateDraft('source_refs', draft.source_refs.map((source, index) => index === 0 ? { ...source, license_status: event.target.value as typeof source.license_status } : source))}>{formOptions.licenseStatuses.map(value => <option key={value}>{value}</option>)}</select></label>
+                    <label className="is-wide"><span>来源 URI</span><FieldEvidence field="source_refs.source_uri" locator={evidenceLocator} /><input value={draft.source_refs[0]?.source_uri ?? ''} onChange={event => updateDraft('source_refs', draft.source_refs.map((source, index) => index === 0 ? { ...source, source_uri: event.target.value } : source))} /></label>
+                    <label><span>来源观察时间</span><FieldEvidence field="source_refs.observed_at" locator={evidenceLocator} /><input value={draft.source_refs[0]?.observed_at ?? ''} onChange={event => updateDraft('source_refs', draft.source_refs.map((source, index) => index === 0 ? { ...source, observed_at: event.target.value } : source))} /></label>
+                    <label><span>权威来源</span><FieldEvidence field="source_refs.authority_origin" locator={evidenceLocator} /><select value={draft.source_refs[0]?.authority_origin ?? ''} onChange={event => updateDraft('source_refs', draft.source_refs.map((source, index) => index === 0 ? { ...source, authority_origin: event.target.value as typeof source.authority_origin } : source))}>{formOptions.authorityOrigins.map(value => <option key={value} value={value}>{humanLabel(value)}</option>)}</select></label>
+                    <label><span>许可状态</span><FieldEvidence field="source_refs.license_status" locator={evidenceLocator} /><select value={draft.source_refs[0]?.license_status ?? ''} onChange={event => updateDraft('source_refs', draft.source_refs.map((source, index) => index === 0 ? { ...source, license_status: event.target.value as typeof source.license_status } : source))}>{formOptions.licenseStatuses.map(value => <option key={value} value={value}>{humanLabel(value)}</option>)}</select></label>
                     <dl className="review-editor__immutable is-wide"><div><dt>Locator</dt><dd>{draft.source_refs[0]?.locator}</dd></div><div><dt>Snapshot hash</dt><dd>{draft.source_refs[0]?.snapshot_hash}</dd></div></dl>
                   </fieldset>
 
                   <footer>
-                    <p>{dirty ? '存在未保存草稿' : '当前表单与已保存 revision 一致'}</p>
+                    <MutationStatus state={mutationState} detail={status || (dirty ? '修改保存在浏览器草稿区，尚未产生新修订。' : '当前表单与已保存修订一致。')} />
                     <button type="button" disabled={!dirty || saving} onClick={() => { setDraft(patchFromObject(record.object)); window.localStorage.removeItem(reviewDraftStorageKey(record.object.object_id)); setStatus('草稿已放弃；没有产生 revision。'); }}><RotateCcw aria-hidden="true" />放弃草稿</button>
                     <button type="submit" disabled={!dirty || saving}>{saving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Save aria-hidden="true" />}保存候选修订</button>
                   </footer>
@@ -494,12 +554,11 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, initialObjectId
                 </section>
               )}
 
-              {status ? <p className="review-dossier__status" role="status">{status}</p> : null}
+              {status && !canEdit ? <p className="review-dossier__status" role="status">{status}</p> : null}
             </>
           ) : <div className="review-dossier__loading" role="status">{status || '请选择待复核对象。'}</div>}
-        </main>
 
-        <aside className="review-history" aria-label="对象修订历史">
+          <aside className="review-history" aria-label="对象修订历史">
           <header><History aria-hidden="true" /><div><span>LEDGER</span><strong>Revision history</strong></div></header>
           {record ? (
             <ol>
@@ -514,7 +573,8 @@ export function KnowledgeReviewWorkspace({ library, writePolicy, initialObjectId
               ))}
             </ol>
           ) : <p>选择对象后显示不可变修订。</p>}
-        </aside>
+          </aside>
+        </main>
       </div>
     </div>
   );

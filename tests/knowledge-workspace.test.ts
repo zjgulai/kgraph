@@ -81,7 +81,9 @@ test('workspace renders the library, inspector and legacy Documents entry withou
   assert.match(html, />文档</u);
   assert.match(html, /aria-label="搜索知识对象"/u);
   assert.match(html, /来源与时态/);
-  assert.match(html, /role="listitem" class="knowledge-row-item"><a/u);
+  assert.match(html, /role="listbox" aria-label="知识对象列表"/u);
+  assert.match(html, /role="option" tabindex="0" data-selected="true" aria-selected="true"/u);
+  assert.match(html, /aria-label="知识资产库视图"/u);
   assert.doesNotMatch(html, /创建并打开|<form|sessionStorage|X-DocCanvas-Token/u);
 });
 
@@ -107,7 +109,7 @@ test('workspace stays separate from CanvasViewer and packages the candidate snap
   assert.match(workbenchShell, /event\.metaKey && !event\.ctrlKey/u);
   assert.match(css, /components\/workbench\/workbench\.css/u);
   assert.match(workbenchCss, /\.workbench-shell\s*\{/u);
-  assert.match(workbenchCss, /@media \(max-width: 760px\)[\s\S]*?\.workbench-mobile-domains/u);
+  assert.match(workbenchCss, /@media \(max-width: 767px\)[\s\S]*?\.workbench-mobile-domains/u);
   assert.match(dockerfile, /shared-knowledge-v1-candidate-pack\.json/u);
   assert.match(dockerfile, /\/workspace\/product\/knowledge-object-fixtures\/shared-knowledge-v1-candidate-pack\.json/u);
   assert.match(dockerfile, /scripts\/lib\/knowledge-object-contract\.ts/u);

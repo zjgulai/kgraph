@@ -81,7 +81,8 @@ test('workbench inventory covers every current workspace view and the governed o
     assert.ok(inventory.includes('| ' + object + ' |'), object);
   }
 
-  assert.match(inventory, /D5 Evidence Registry core complete locally with a global Canvas performance gate open/u);
+  assert.match(inventory, /local L2 Knowledge workflow implementation verified; full browser source-checkpoint gate open/u);
+  assert.match(inventory, /ui098-preflight-reconciliation\.md/u);
   assert.match(inventory, /Evidence Registry v1/u);
   assert.match(inventory, /UI-029/u);
   assert.match(inventory, /production unchanged/u);

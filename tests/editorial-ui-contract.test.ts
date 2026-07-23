@@ -13,7 +13,8 @@ const card = read('components/canvas/CardNode.tsx');
 const mobile = read('components/canvas/MobileArchitectureView.tsx');
 const search = read('components/canvas/SearchPanel.tsx');
 const detail = read('components/canvas/NodeDetailSheet.tsx');
-const css = read('app/globals.css');
+const globalCss = read('app/globals.css');
+const css = `${globalCss}\n${read('app/canvas.css')}`;
 const factoryTokens = read('opendesign/design-systems/doccanvas-product-factory/tokens/colors_and_type.css');
 const factorySystemSkill = read('opendesign/design-systems/doccanvas-product-factory/SKILL.md');
 const documentsRoute = read('app/api/documents/route.ts');
@@ -76,7 +77,7 @@ test('owner save rebuilds the complete parsed graph instead of patching stale de
 });
 
 test('tablet controls keep 44px targets without wrapping the fixed header', () => {
-  const tabletStart = css.indexOf('@media (min-width: 768px) and (max-width: 1100px)');
+  const tabletStart = css.indexOf('@media (min-width: 768px) and (max-width: 1279px)');
   const tabletEnd = css.indexOf('@media (min-width: 768px) and (max-width: 900px)', tabletStart);
   const tablet = css.slice(tabletStart, tabletEnd);
   assert.match(css, /\.factory-scene-controls button[\s\S]*?width:\s*44px[\s\S]*?height:\s*44px/u);

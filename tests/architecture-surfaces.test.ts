@@ -22,9 +22,16 @@ const sceneModel = read('lib/canvas/factory-scene.ts');
 const layoutHook = read('components/canvas/useFactoryLayout.ts');
 const layoutWorker = read('lib/canvas/factory-layout.worker.ts');
 const factoryHeader = read('components/canvas/FactoryHeader.tsx');
+const canvasToolbar = read('components/canvas/CanvasToolbar.tsx');
+const mobileCanvasNavigation = read('components/canvas/MobileCanvasNavigation.tsx');
+const presentationSwitch = read('components/canvas/CanvasPresentationSwitch.tsx');
 const digitalEmployee = read('components/canvas/DigitalEmployee.tsx');
 const ownerInspector = read('components/canvas/FactoryOwnerInspector.tsx');
-const css = read('app/globals.css');
+const nodeDetail = read('components/canvas/NodeDetailSheet.tsx');
+const performanceTelemetry = read('lib/client/performance-telemetry.ts');
+const globalCss = read('app/globals.css');
+const canvasCss = read('app/canvas.css');
+const css = `${globalCss}\n${canvasCss}`;
 
 function fixtureNode(id: string, title: string, summary: string): DocNode {
   return {
@@ -66,6 +73,21 @@ test('desktop canvas renders routed SVG pipelines with explicit relation data', 
   assert.match(sceneModel, /routeOrthogonalEdge/);
 });
 
+test('desktop defaults to Map and switches presentation without forking the scene engine', () => {
+  assert.match(canvasViewer, /useState<CanvasPresentationMode>\('map'\)/);
+  assert.match(canvasViewer, /<CanvasToolbar/);
+  assert.match(canvasToolbar, /<CanvasPresentationSwitch/);
+  assert.equal(canvasViewer.match(/\n\s*<FactorySceneCanvas\n/g)?.length, 1);
+  assert.match(sceneCanvas, /data-presentation=\{presentationMode\}/);
+  assert.match(presentationSwitch, /aria-label="画布表现"/);
+  assert.match(presentationSwitch, /aria-pressed=\{mode === option\.id\}/);
+  assert.match(presentationSwitch, /地图/);
+  assert.match(presentationSwitch, /工厂/);
+  assert.match(factoryHeader, /presentationMode/);
+  assert.match(css, /\.factory-scene-canvas\[data-presentation="map"\]/u);
+  assert.match(css, /\.factory-scene-canvas\[data-presentation="factory"\]/u);
+});
+
 test('pipeline layer remains above structural shells and below interactive cards', () => {
   assert.match(css, /\.factory-scene-canvas__pipelines\s*\{[^}]*z-index:\s*2/u);
   assert.match(css, /\.factory-scene-canvas__nodes\s*\{[^}]*z-index:\s*auto/u);
@@ -89,6 +111,25 @@ test('canvas stylesheet consumes semantic factory tokens without naked hexadecim
   assert.match(css, /var\(--factory-canvas\)/);
 });
 
+test('D8 gives Canvas an owned stylesheet and defers virtualization commits during camera interaction', () => {
+  assert.match(globalCss, /@import "\.\/canvas\.css"/u);
+  assert.match(canvasCss, /Architecture house canvas/u);
+  assert.doesNotMatch(canvasCss, /#[0-9a-f]{3,8}\b/iu);
+  assert.doesNotMatch(canvasCss, /transition:\s*all\b/iu);
+  assert.match(sceneCanvas, /const VIEWPORT_COMMIT_DELAY_MS = 80/u);
+  assert.match(sceneCanvas, /commitMode: 'immediate' \| 'deferred'/u);
+  assert.match(sceneCanvas, /false, 'deferred'/u);
+  assert.match(sceneCanvas, /sceneRef\.current\.style\.transform/u);
+  assert.match(sceneCanvas, /addEventListener\('wheel', handleWheel, \{ passive: false \}\)/u);
+  assert.doesNotMatch(sceneCanvas, /onWheel=\{handleWheel\}/u);
+  for (const metric of ['canvas-pan', 'canvas-zoom', 'canvas-drag', 'canvas-reroute']) {
+    assert.match(sceneCanvas, new RegExp(`recordClientPerformance\\('${metric}'`, 'u'));
+  }
+  assert.match(performanceTelemetry, /'fcp'/u);
+  assert.match(performanceTelemetry, /'inp'/u);
+  assert.match(performanceTelemetry, /durationThreshold: 16/u);
+});
+
 test('Owner portrait flow previews the 4:5 crop before confirmed server normalization', () => {
   assert.match(ownerInspector, /URL\.createObjectURL\(file\)/);
   assert.match(ownerInspector, /4:5 裁剪预览/);
@@ -97,6 +138,8 @@ test('Owner portrait flow previews the 4:5 crop before confirmed server normaliz
   assert.match(ownerInspector, /URL\.revokeObjectURL/);
   assert.match(css, /factory-owner-assets__preview/);
   assert.match(css, /aspect-ratio: 4 \/ 5/);
+  assert.match(digitalEmployee, /loading="lazy"/u);
+  assert.match(ownerInspector, /width=\{80\} height=\{100\} loading="lazy" decoding="async"/u);
 });
 
 test('desktop factory owns a readable lintel outside the scene zoom layer', () => {
@@ -305,10 +348,10 @@ test('mobile rooms expose the same digital employee, status, and work counts as 
 });
 
 test('mobile factory uses bounded headings, viewport-safe width, and 44px controls', () => {
-  const mobileMedia = css.slice(css.lastIndexOf('@media (max-width: 767px)'));
+  const mobileMedia = css.slice(css.indexOf('@media (max-width: 767px)', css.indexOf('.architecture-canvas-shell.is-exporting-panorama')));
   assert.match(mobileMedia, /\.mobile-architecture\s*\{[\s\S]*?max-width:\s*100%[\s\S]*?overflow-x:\s*clip/u);
   assert.match(mobileMedia, /\.mobile-architecture__hero h1,[\s\S]*?font-size:\s*clamp\(1\.35rem,[^;]+1\.75rem\)/u);
-  assert.match(mobileMedia, /\.mobile-canvas-toolbar a,[\s\S]*?width:\s*44px[\s\S]*?height:\s*44px/u);
+  assert.match(mobileMedia, /\.mobile-canvas-navigation a,[\s\S]*?min-width:\s*44px[\s\S]*?min-height:\s*48px/u);
   assert.match(mobileMedia, /\.mobile-process-room > button[\s\S]*?min-height:\s*(?:[4-9][4-9]|[1-9]\d{2,})px/u);
 });
 
@@ -327,6 +370,26 @@ test('tablet reader can close without clearing the selected room highlight', () 
   assert.match(canvasViewer, /dismissedReaderRegionId/);
   assert.match(canvasViewer, /setDismissedReaderRegionId\(selectedRegion\.id\)/);
   assert.match(canvasViewer, /onClose=/);
+});
+
+test('D7 uses one 1280/768/mobile responsive contract across layout and reader surfaces', () => {
+  assert.match(canvasViewer, /width >= 768 && width <= 1279 \? 'tablet' : 'desktop'/u);
+  assert.match(css, /@media \(min-width: 768px\) and \(max-width: 1279px\)/u);
+  assert.match(canvasViewer, /architecture-region-reader__backdrop/u);
+  assert.match(css, /\.architecture-region-reader__backdrop[\s\S]*?display:\s*block/u);
+  assert.match(css, /\.architecture-region-reader\s*\{[\s\S]*?grid-column:\s*1[\s\S]*?top:\s*12px[\s\S]*?right:\s*12px[\s\S]*?bottom:\s*12px[\s\S]*?width:\s*min\(420px,/u);
+});
+
+test('D7 mobile canvas is bottom navigated, safe-area aware, and readonly detail is touch contained', () => {
+  const mobileMedia = css.slice(css.indexOf('@media (max-width: 767px)', css.indexOf('.architecture-canvas-shell.is-exporting-panorama')));
+  assert.match(mobileCanvasNavigation, /mobile-canvas-navigation/u);
+  assert.match(mobileMedia, /\.mobile-canvas-navigation\s*\{[\s\S]*?bottom:\s*0/u);
+  assert.match(mobileMedia, /env\(safe-area-inset-bottom\)/u);
+  assert.match(mobileMedia, /\.mobile-architecture\s*\{[\s\S]*?overscroll-behavior:\s*contain/u);
+  assert.match(mobileMedia, /\.mobile-process-room > button[\s\S]*?touch-action:\s*manipulation/u);
+  assert.match(nodeDetail, /node-detail-sheet/u);
+  assert.match(css, /\.node-detail-sheet[\s\S]*?overscroll-behavior:\s*contain/u);
+  assert.match(css, /\.node-detail-sheet__body[\s\S]*?env\(safe-area-inset-bottom\)/u);
 });
 
 test('normal surface source adds no emoji, section sign, or decorative arrow text', () => {

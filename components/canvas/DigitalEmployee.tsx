@@ -39,6 +39,7 @@ export function DigitalEmployee({
             alt={`${employee!.displayName}，${employee!.roleTitle}合成角色形象`}
             fill
             sizes={compact ? '64px' : '160px'}
+            loading="lazy"
             onError={() => setPortraitFailed(true)}
           />
         ) : (

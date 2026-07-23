@@ -1,11 +1,13 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Building2, ShieldAlert } from 'lucide-react';
+import { Building2, Map as MapIcon, ShieldAlert } from 'lucide-react';
 import { semanticTitleLines } from '@/lib/canvas/semantic-title';
+import type { CanvasPresentationMode } from './CanvasPresentationSwitch';
 
 interface FactoryHeaderProps {
   title: string;
+  presentationMode: CanvasPresentationMode;
   modeLabel: string;
   version: string;
   roomCount: number;
@@ -18,6 +20,7 @@ interface FactoryHeaderProps {
 
 export function FactoryHeader({
   title,
+  presentationMode,
   modeLabel,
   version,
   roomCount,
@@ -28,14 +31,15 @@ export function FactoryHeader({
   actions,
 }: FactoryHeaderProps) {
   const [primaryTitle, secondaryTitle] = semanticTitleLines(title);
+  const HeaderIcon = presentationMode === 'map' ? MapIcon : Building2;
   return (
-    <header className="factory-header">
+    <header className="factory-header" data-presentation={presentationMode}>
       <div className="factory-header__identity">
         <span className="factory-header__mark" aria-hidden="true">
-          <Building2 />
+          <HeaderIcon />
         </span>
         <div className="factory-header__title">
-          <span>LIVING PRODUCT FACTORY / DOCUMENT ARCHITECTURE</span>
+          <span>{presentationMode === 'map' ? 'KNOWLEDGE MAP / DOCUMENT ARCHITECTURE' : 'LIVING PRODUCT FACTORY / DOCUMENT ARCHITECTURE'}</span>
           <h1>
             <span>{primaryTitle}</span>
             {secondaryTitle && <span>{secondaryTitle}</span>}

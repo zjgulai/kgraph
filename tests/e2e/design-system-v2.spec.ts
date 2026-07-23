@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('design system primitives preserve keyboard, focus and responsive contracts', async ({ page }, testInfo) => {
   await page.goto('/e2e-fixtures/design-system');
-  await expect(page.getByRole('heading', { name: 'Governed interaction primitives' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '受治理交互组件' })).toBeVisible();
 
   const dialogTrigger = page.getByRole('button', { name: '打开保存 Dialog' });
   await dialogTrigger.focus();
@@ -28,9 +28,9 @@ test('design system primitives preserve keyboard, focus and responsive contracts
   await expect(menuTrigger).toBeFocused();
 
   const tabs = page.getByRole('tablist', { name: '状态示例' });
-  await tabs.getByRole('tab', { name: 'Ready' }).focus();
+  await tabs.getByRole('tab', { name: '就绪' }).focus();
   await page.keyboard.press('ArrowRight');
-  await expect(tabs.getByRole('tab', { name: 'Loading' })).toHaveAttribute('aria-selected', 'true');
+  await expect(tabs.getByRole('tab', { name: '加载中' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('正在载入候选…')).toBeVisible();
 
   await page.getByRole('button', { name: '打开 Inspector Drawer' }).click();
@@ -49,6 +49,6 @@ test('reduced motion disables loading rotation and press translation', async ({ 
   await page.goto('/e2e-fixtures/design-system');
   const button = page.getByRole('button', { name: '打开保存 Dialog' });
   expect(await button.evaluate(element => parseFloat(getComputedStyle(element).transitionDuration) <= 0.00001)).toBe(true);
-  await page.getByRole('tab', { name: 'Loading' }).click();
-  await expect(page.locator('.ds-async svg')).toHaveCSS('animation-name', 'none');
+  await page.getByRole('tab', { name: '加载中' }).click();
+  await expect(page.locator('section[aria-labelledby="fixture-states"] .ds-async svg')).toHaveCSS('animation-name', 'none');
 });

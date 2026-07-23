@@ -12,6 +12,12 @@ import type {
 import type { PilotReadinessReport } from '@/lib/server/knowledge-enrichment-pilot';
 import type { PilotAuthorizationRequest } from '@/lib/server/knowledge-enrichment-authorization-request';
 import type { WritePolicy } from '@/lib/server/write-guard';
+import {
+  goldDraftStorageKey,
+  parseGoldWorkspaceDraft,
+  serializeGoldWorkspaceDraft,
+  type GoldWorkspaceDraftFields,
+} from '@/lib/knowledge/gold-workspace-draft';
 
 interface RuntimeStatus {
   mode: 'disabled' | 'configured';
@@ -38,6 +44,7 @@ interface Props {
   evaluation: EnrichmentEvaluationReport;
   pilot?: PilotReadinessReport;
   writePolicy: WritePolicy;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const DEFAULT_PILOT_READINESS: PilotReadinessReport = {
@@ -95,6 +102,21 @@ function gateLabel(report: EnrichmentEvaluationReport, name: keyof EnrichmentEva
   return `${gate.operator === 'minimum' ? '≥' : '≤'} ${metric(gate.threshold)}`;
 }
 
+function goldFields(annotation: GoldAnnotationSummary | null): GoldWorkspaceDraftFields {
+  const locator = annotation?.annotation.classification.evidenceLocators[0];
+  return {
+    title: annotation?.annotation.title ?? '',
+    summary: annotation?.annotation.summary ?? '',
+    keyPoints: annotation?.annotation.keyPoints.join('\n') ?? '',
+    objectType: annotation?.annotation.classification.objectType ?? '',
+    primary: annotation?.annotation.classification.knowledgeForm.primary ?? '',
+    subform: annotation?.annotation.classification.knowledgeForm.subform ?? '',
+    domains: annotation?.annotation.classification.domainRefs.join(', ') ?? '',
+    startLine: locator?.startLine ?? 1,
+    endLine: locator?.endLine ?? 1,
+  };
+}
+
 export function EnrichmentWorkspace({
   captures,
   initialEnrichments,
@@ -103,6 +125,7 @@ export function EnrichmentWorkspace({
   evaluation: initialEvaluation,
   pilot = DEFAULT_PILOT_READINESS,
   writePolicy,
+  onDirtyChange,
 }: Props) {
   const [enrichments, setEnrichments] = useState(initialEnrichments);
   const [gold, setGold] = useState(initialGold);
@@ -123,11 +146,18 @@ export function EnrichmentWorkspace({
   const [domains, setDomains] = useState('');
   const [startLine, setStartLine] = useState(1);
   const [endLine, setEndLine] = useState(1);
+  const [draftCaptureId, setDraftCaptureId] = useState('');
   const mobile = useMobileEnrichment();
   const canWrite = writePolicy.writable && ownerAuthenticated && !mobile;
   const canExecuteProvider = canWrite && runtime.ready && pilotReadiness.executionAllowed;
   const selected = enrichments.find(item => item.enrichmentId === selectedId) ?? enrichments[0] ?? null;
   const selectedGold = selected ? gold.find(item => item.annotation.captureId === selected.captureId) ?? null : null;
+  const baselineGoldDraft = useMemo(() => goldFields(selectedGold), [selectedGold]);
+  const currentGoldDraft = useMemo<GoldWorkspaceDraftFields>(() => ({
+    title, summary, keyPoints, objectType, primary, subform, domains, startLine, endLine,
+  }), [domains, endLine, keyPoints, objectType, primary, startLine, subform, summary, title]);
+  const goldDirty = Boolean(selected && draftCaptureId === selected.captureId
+    && JSON.stringify(currentGoldDraft) !== JSON.stringify(baselineGoldDraft));
   const captureWithoutEnrichment = useMemo(() => captures.filter(capture => (
     !enrichments.some(item => item.captureId === capture.captureId)
   )), [captures, enrichments]);
@@ -137,30 +167,60 @@ export function EnrichmentWorkspace({
   }, [captureWithoutEnrichment, pilotReadiness.authorizedCaptureIds]);
 
   useEffect(() => {
-    if (selectedGold) {
-      setTitle(selectedGold.annotation.title);
-      setSummary(selectedGold.annotation.summary);
-      setKeyPoints(selectedGold.annotation.keyPoints.join('\n'));
-      setObjectType(selectedGold.annotation.classification.objectType);
-      setPrimary(selectedGold.annotation.classification.knowledgeForm.primary);
-      setSubform(selectedGold.annotation.classification.knowledgeForm.subform);
-      setDomains(selectedGold.annotation.classification.domainRefs.join(', '));
-      const locator = selectedGold.annotation.classification.evidenceLocators[0];
-      setStartLine(locator?.startLine ?? 1);
-      setEndLine(locator?.endLine ?? 1);
-    } else {
-      setTitle('');
-      setSummary('');
-      setKeyPoints('');
-      setObjectType('');
-      setPrimary('');
-      setSubform('');
-      setDomains('');
-      setStartLine(1);
-      setEndLine(1);
-    }
+    const baseline = goldFields(selectedGold);
+    const stored = selected ? parseGoldWorkspaceDraft(window.localStorage.getItem(goldDraftStorageKey(selected.captureId))) : null;
+    const compatible = Boolean(selected && stored
+      && stored.captureId === selected.captureId
+      && stored.sourceHash === selected.inputHash
+      && stored.baseRevision === (selectedGold?.revision ?? null)
+      && stored.baseAnnotationHash === (selectedGold?.annotationHash ?? null));
+    const restored = compatible && stored ? stored.draft : baseline;
+    setTitle(restored.title);
+    setSummary(restored.summary);
+    setKeyPoints(restored.keyPoints);
+    setObjectType(restored.objectType as (typeof objectTypes)[number] | '');
+    setPrimary(restored.primary as keyof typeof subforms | '');
+    setSubform(restored.subform);
+    setDomains(restored.domains);
+    setStartLine(restored.startLine);
+    setEndLine(restored.endLine);
+    setDraftCaptureId(selected?.captureId ?? '');
+    if (compatible) setStatus('已恢复此 Capture 的 Human-gold 浏览器草稿；尚未保存 revision。');
+    else if (stored) setStatus('检测到基于旧来源或 revision 的 Human-gold 草稿；为避免误覆盖，未自动应用。');
     setAttested(false);
-  }, [selected?.enrichmentId, selectedGold]);
+  }, [selected?.captureId, selected?.enrichmentId, selected?.inputHash, selectedGold]);
+
+  useEffect(() => { onDirtyChange?.(goldDirty); }, [goldDirty, onDirtyChange]);
+
+  useEffect(() => {
+    if (!goldDirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [goldDirty]);
+
+  useEffect(() => {
+    if (!selected || draftCaptureId !== selected.captureId) return;
+    const key = goldDraftStorageKey(selected.captureId);
+    if (!goldDirty) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(key, serializeGoldWorkspaceDraft({
+          captureId: selected.captureId,
+          sourceHash: selected.inputHash,
+          baseRevision: selectedGold?.revision ?? null,
+          baseAnnotationHash: selectedGold?.annotationHash ?? null,
+          draft: currentGoldDraft,
+        }));
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : 'Human-gold 浏览器草稿保存失败。');
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [currentGoldDraft, draftCaptureId, goldDirty, selected, selectedGold]);
 
   const refresh = async () => {
     const response = await fetch('/api/knowledge/enrichments', { cache: 'no-store', credentials: 'same-origin' });
@@ -304,6 +364,7 @@ export function EnrichmentWorkspace({
       const payload = await response.json() as { gold?: GoldAnnotationSummary; error?: string };
       if (!response.ok || !payload.gold) throw new Error(payload.error || 'Human-gold 保存失败。');
       setGold(current => [payload.gold!, ...current.filter(item => item.annotation.captureId !== payload.gold!.annotation.captureId)]);
+      window.localStorage.removeItem(goldDraftStorageKey(selected.captureId));
       await refresh();
       setAttested(false);
       setStatus(`Human-gold R${payload.gold.revision} 已保存；模型输出没有被自动当作 gold。`);
@@ -312,6 +373,12 @@ export function EnrichmentWorkspace({
     } finally {
       setBusy(false);
     }
+  };
+
+  const selectEnrichment = (enrichmentId: string) => {
+    if (enrichmentId === selected?.enrichmentId) return;
+    if (goldDirty && !window.confirm('当前 Human-gold 有未保存草稿，已保存在本地。仍要切换对象？')) return;
+    setSelectedId(enrichmentId);
   };
 
   return (
@@ -400,7 +467,7 @@ export function EnrichmentWorkspace({
           {enrichments.length === 0 ? (
             <div className="enrichment-queue__empty"><FlaskConical aria-hidden="true" /><strong>尚无生成式结果</strong><span>当前 Provider 门关闭；Capture 的 extractive candidate 仍可独立进入 Review。</span></div>
           ) : (
-            <ol>{enrichments.map(item => <li key={item.enrichmentId} data-active={item.enrichmentId === selected?.enrichmentId}><button type="button" onClick={() => setSelectedId(item.enrichmentId)}><small>{item.executionMode} · {item.providerCall ? 'provider call' : 'no provider call'}</small><strong>{item.title}</strong><span>{item.providerId} / {item.modelId}</span><code>{item.inputHash.slice(7, 19)} · {item.reviewState}</code></button></li>)}</ol>
+            <ol>{enrichments.map(item => <li key={item.enrichmentId} data-active={item.enrichmentId === selected?.enrichmentId}><button type="button" onClick={() => selectEnrichment(item.enrichmentId)}><small>{item.executionMode} · {item.providerCall ? 'provider call' : 'no provider call'}</small><strong>{item.title}</strong><span>{item.providerId} / {item.modelId}</span><code>{item.inputHash.slice(7, 19)} · {item.reviewState}</code></button></li>)}</ol>
           )}
         </section>
 

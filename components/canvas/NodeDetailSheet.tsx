@@ -232,9 +232,9 @@ export function NodeDetailSheet({
         role="dialog"
         aria-modal="true"
         aria-label={presentation.accessibleLabel}
-        className="relative mt-auto max-h-[90vh] w-full overflow-y-auto rounded-t-xl border-l border-t border-[var(--factory-border)] bg-white shadow-[-12px_0_36px_rgba(24,32,25,0.12)] animate-in slide-in-from-right slide-in-from-bottom duration-200 sm:mt-0 sm:max-h-full sm:max-w-xl sm:rounded-none sm:border-b-0 sm:border-t-0 sm:slide-in-from-bottom-0 sm:slide-in-from-right"
+        className="node-detail-sheet relative mt-auto max-h-[90vh] w-full overflow-y-auto rounded-t-xl border-l border-t border-[var(--factory-border)] bg-white shadow-[-12px_0_36px_rgba(24,32,25,0.12)] animate-in slide-in-from-right slide-in-from-bottom duration-200 sm:mt-0 sm:max-h-full sm:max-w-xl sm:rounded-none sm:border-b-0 sm:border-t-0 sm:slide-in-from-bottom-0 sm:slide-in-from-right"
       >
-        <div className="sticky top-0 z-10 flex min-h-16 items-center justify-between border-b border-[var(--factory-border)] bg-white px-5 py-2">
+        <div className="node-detail-sheet__header sticky top-0 z-10 flex min-h-16 items-center justify-between border-b border-[var(--factory-border)] bg-white px-5 py-2">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             {presentation.badges.map(badge => (
               <span key={`${badge.kind}-${badge.label}`} className={`rounded px-2 py-0.5 text-xs font-semibold ${badgeClass(badge)}`}>
@@ -263,7 +263,7 @@ export function NodeDetailSheet({
           </div>
         </div>
 
-        <div className="space-y-5 px-5 py-4">
+        <div className="node-detail-sheet__body space-y-5 px-5 py-4">
           <header>
             <h2 className="text-xl font-semibold leading-snug text-[var(--factory-ink)]">{presentation.displayTitle}</h2>
             <p className="mt-1 text-xs text-[var(--factory-muted)]">来源章节：{presentation.sourceLabel}</p>

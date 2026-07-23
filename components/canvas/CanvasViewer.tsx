@@ -1,20 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import Link from 'next/link';
 import { toPng, toSvg } from 'html-to-image';
 import {
-  ArrowLeft,
-  Download,
-  FileCode2,
-  Home,
-  ImageDown,
   History,
   LayoutDashboard,
   ListPlus,
-  RotateCcw,
-  Save,
-  Search,
 } from 'lucide-react';
 import type {
   CanvasState,
@@ -95,6 +86,11 @@ import { ExportIndicator, type ExportFeedbackStatus } from './ExportIndicator';
 import { SearchPanel } from './SearchPanel';
 import { ArchitectureRegionReader } from './ArchitectureRegionReader';
 import { FactoryHeader } from './FactoryHeader';
+import {
+  type CanvasPresentationMode,
+} from './CanvasPresentationSwitch';
+import { CanvasToolbar } from './CanvasToolbar';
+import { MobileCanvasNavigation } from './MobileCanvasNavigation';
 import { FactoryRelationInspector } from './FactoryRelationInspector';
 import { OwnerSessionControl } from './OwnerSessionControl';
 import {
@@ -293,6 +289,7 @@ export default function CanvasViewer({ document, documentHash, presentation, wri
   const [baseDocumentHash, setBaseDocumentHash] = useState(documentHash);
   const [presentationSidecar, setPresentationSidecar] = useState(presentation);
   const [canvasView, setCanvasView] = useState<CanvasView>({ kind: 'overview' });
+  const [presentationMode, setPresentationMode] = useState<CanvasPresentationMode>('map');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedRelation, setSelectedRelation] = useState<FactorySceneEdge | null>(null);
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
@@ -684,7 +681,7 @@ export default function CanvasViewer({ document, documentHash, presentation, wri
   useEffect(() => {
     const updateProfile = () => {
       const width = window.innerWidth;
-      setLayoutProfile(width >= 768 && width <= 1100 ? 'tablet' : 'desktop');
+      setLayoutProfile(width >= 768 && width <= 1279 ? 'tablet' : 'desktop');
       setIsMobileViewport(width < 768);
     };
     updateProfile();
@@ -1215,10 +1212,14 @@ export default function CanvasViewer({ document, documentHash, presentation, wri
       <div
         ref={canvasShellRef}
         className={`architecture-canvas-shell ${canvasView.kind === 'focused-region' ? 'is-focused-region' : ''} ${showRegionReader ? 'has-region-reader' : ''}${exportingFullScene ? ' is-exporting-full-scene' : ''}`}
+        data-presentation={presentationMode}
       >
       <FactoryHeader
         title={displayArchitectureTitle}
-        modeLabel={architectureModel.mode === 'lifecycle' ? '生命周期建筑' : '能力模块建筑'}
+        presentationMode={presentationMode}
+        modeLabel={presentationMode === 'map'
+          ? (architectureModel.mode === 'lifecycle' ? '生命周期地图' : '能力模块地图')
+          : (architectureModel.mode === 'lifecycle' ? '生命周期建筑' : '能力模块建筑')}
         version={displayDocumentVersion}
         roomCount={architectureModel.regions.filter(region => region.kind === 'room').length}
         nodeCount={docNodes.length}
@@ -1242,48 +1243,38 @@ export default function CanvasViewer({ document, documentHash, presentation, wri
           </nav>
         ) : undefined}
         actions={(
-          <nav className="architecture-toolbar" aria-label="画布工具栏">
-            <Link href="/" aria-label="返回工作台" title="返回工作台"><Home aria-hidden="true" />工作台</Link>
-            {canvasView.kind === 'focused-region' && (
-              <button type="button" title="返回全景" onClick={returnToOverview}><ArrowLeft aria-hidden="true" />全景</button>
+          <CanvasToolbar
+            presentationMode={presentationMode}
+            onPresentationChange={setPresentationMode}
+            showOverviewAction={canvasView.kind === 'focused-region'}
+            activeStage={activeStage}
+            isTrackExpanded={track => Boolean(activeStage && expandedTracks.has(`stage${activeStage}-${track}`))}
+            onToggleTrack={track => {
+              if (!activeStage) return;
+              const trackId = `stage${activeStage}-${track}`;
+              setExpandedTracks(previous => {
+                restoreGenerationRef.current += 1;
+                const next = new Set(previous);
+                next.has(trackId) ? next.delete(trackId) : next.add(trackId);
+                return next;
+              });
+            }}
+            onReturnToOverview={returnToOverview}
+            onSearch={() => setSearchRequest(value => value + 1)}
+            onFit={fitCanvasFromUser}
+            onResetLayout={resetAutoLayout}
+            onSaveView={saveCanvasState}
+            onExportPng={exportPng}
+            onExportSvg={exportSvg}
+            onExportMarkdown={exportMarkdown}
+            exportWorking={exportFeedback.status === 'working'}
+            ownerControl={(
+              <OwnerSessionControl
+                writePolicy={writePolicy}
+                onAuthenticatedChange={handleOwnerAuthenticatedChange}
+              />
             )}
-            {activeStage && (
-              <>
-                {(['vibe', 'pro'] as const).map(track => {
-                  const trackId = `stage${activeStage}-${track}`;
-                  const expanded = expandedTracks.has(trackId);
-                  return (
-                    <button
-                      type="button"
-                      key={track}
-                      className={`architecture-toolbar__track architecture-toolbar__track--${track} ${expanded ? 'is-active' : ''}`}
-                      aria-pressed={expanded}
-                      title={`${expanded ? '收起' : '展开'} ${track === 'vibe' ? 'Vibe' : 'Pro'} 轨道`}
-                      onClick={() => setExpandedTracks(previous => {
-                        restoreGenerationRef.current += 1;
-                        const next = new Set(previous);
-                        next.has(trackId) ? next.delete(trackId) : next.add(trackId);
-                        return next;
-                      })}
-                    >
-                      {track === 'vibe' ? 'Vibe' : 'Pro'}
-                    </button>
-                  );
-                })}
-              </>
-            )}
-            <button type="button" title="搜索" onClick={() => setSearchRequest(value => value + 1)}><Search aria-hidden="true" />搜索</button>
-            <button type="button" title="适应画布" onClick={fitCanvasFromUser}><RotateCcw aria-hidden="true" />适应</button>
-            <button type="button" title="重置自动布局" onClick={resetAutoLayout}><RotateCcw aria-hidden="true" />重置</button>
-            <button type="button" title="保存个人视图" onClick={saveCanvasState}><Save aria-hidden="true" />保存视图</button>
-            <OwnerSessionControl
-              writePolicy={writePolicy}
-              onAuthenticatedChange={handleOwnerAuthenticatedChange}
-            />
-            <button type="button" title="导出当前视口 PNG" disabled={exportFeedback.status === 'working'} onClick={exportPng}><ImageDown aria-hidden="true" />PNG</button>
-            <button type="button" title="导出完整场景 SVG" disabled={exportFeedback.status === 'working'} onClick={exportSvg}><FileCode2 aria-hidden="true" />SVG</button>
-            <button type="button" title="导出 Markdown" disabled={exportFeedback.status === 'working'} className="architecture-toolbar__primary" onClick={exportMarkdown}><Download aria-hidden="true" />Markdown</button>
-          </nav>
+          />
         )}
       />
 
@@ -1291,6 +1282,10 @@ export default function CanvasViewer({ document, documentHash, presentation, wri
         <FactorySceneCanvas
           ref={sceneCanvasRef}
           layout={layout}
+          presentationMode={presentationMode}
+          ariaLabel={presentationMode === 'map' ? '知识地图关系画布' : '产品工厂关系画布'}
+          relationAriaLabel={presentationMode === 'map' ? '知识关系' : '生产关系'}
+          fitControlLabel={presentationMode === 'map' ? '适应地图' : '适应建筑'}
           viewKey={`${document.id}:${architectureModel.graphFingerprint}:${canvasView.kind === 'overview' ? 'overview' : canvasView.regionId}:${layoutProfile}:${[...expandedTracks].sort().join(',')}`}
           initialViewport={matchingRestoredState?.viewport}
           initialNodePositions={matchingRestoredState?.nodePositions}
@@ -1335,21 +1330,31 @@ export default function CanvasViewer({ document, documentHash, presentation, wri
       </div>
 
       {showRegionReader && selectedRegion && selectedRegionPresentation && (
-        <ArchitectureRegionReader
-          region={{
-            id: selectedRegion.id,
-            eyebrow: roomPreview(selectedRegion, selectedRegionId, selectedRegionPresentation).eyebrow,
-            title: selectedRegionPresentation.displayTitle,
-            summary: selectedRegionPresentation.displaySummary,
-            sourceLabels: [...selectedRegionPresentation.sourceLabels],
-            previewNodeIds: selectedRegion.previewNodeIds,
-          }}
-          presentations={presentationRecord}
-          highlightedNodeId={highlightedSearchNodeId ?? undefined}
-          onEnterRoom={openRegion}
-          onOpenNode={openDocNode}
-          onClose={() => setDismissedReaderRegionId(selectedRegion.id)}
-        />
+        <>
+          {layoutProfile === 'tablet' && (
+            <button
+              type="button"
+              className="architecture-region-reader__backdrop"
+              onClick={() => setDismissedReaderRegionId(selectedRegion.id)}
+              aria-label="关闭房间速读"
+            />
+          )}
+          <ArchitectureRegionReader
+            region={{
+              id: selectedRegion.id,
+              eyebrow: roomPreview(selectedRegion, selectedRegionId, selectedRegionPresentation).eyebrow,
+              title: selectedRegionPresentation.displayTitle,
+              summary: selectedRegionPresentation.displaySummary,
+              sourceLabels: [...selectedRegionPresentation.sourceLabels],
+              previewNodeIds: selectedRegion.previewNodeIds,
+            }}
+            presentations={presentationRecord}
+            highlightedNodeId={highlightedSearchNodeId ?? undefined}
+            onEnterRoom={openRegion}
+            onOpenNode={openDocNode}
+            onClose={() => setDismissedReaderRegionId(selectedRegion.id)}
+          />
+        </>
       )}
 
       {selectedRelation && (
@@ -1365,13 +1370,13 @@ export default function CanvasViewer({ document, documentHash, presentation, wri
         />
       )}
 
-      <div className="mobile-canvas-toolbar">
-        <Link href="/" aria-label="返回工作台"><Home aria-hidden="true" /></Link>
-        <button type="button" onClick={() => setSearchRequest(value => value + 1)} aria-label="搜索"><Search aria-hidden="true" /></button>
-        <button type="button" onClick={saveCanvasState} aria-label="保存个人视图"><Save aria-hidden="true" /></button>
-        <button type="button" disabled={exportFeedback.status === 'working'} onClick={exportPng} aria-label="导出 PNG"><ImageDown aria-hidden="true" /></button>
-        <button type="button" disabled={exportFeedback.status === 'working'} onClick={exportMarkdown} aria-label="导出 Markdown"><Download aria-hidden="true" /></button>
-      </div>
+      <MobileCanvasNavigation
+        exportWorking={exportFeedback.status === 'working'}
+        onSearch={() => setSearchRequest(value => value + 1)}
+        onSaveView={saveCanvasState}
+        onExportPng={exportPng}
+        onExportMarkdown={exportMarkdown}
+      />
       <MobileArchitectureView
         documentTitle={displayArchitectureTitle}
         version={displayDocumentVersion}

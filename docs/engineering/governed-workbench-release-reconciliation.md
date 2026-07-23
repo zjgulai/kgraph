@@ -1,7 +1,7 @@
 ---
 title: Governed Workbench D0-D10 release reconciliation
-status: d5_checkpoint_verified_awaiting_exact_scope_authorization
-updated: 2026-07-22
+status: local-acceptance-complete-source-checkpoint-preparation
+updated: 2026-07-23
 ---
 
 # Governed Workbench release reconciliation
@@ -12,7 +12,7 @@ This record reconciles the approved D0-D10 redesign plan with the existing Facto
 
 Current supported conclusion:
 
-`D0-D5 checkpoint locally verified / global Canvas performance gate open / D6-D10 release acceptance incomplete / production unchanged`
+`D0-D5 checkpoint pushed / D6-D10 locally verified / UI-022–025 browser verified / source-checkpoint preparation only / production unchanged`
 
 This record does not authorize staging, commit, push, Provider calls, canonical promotion, candidate construction, production access, backup, or activation.
 
@@ -35,7 +35,7 @@ Future completion claims must cite the redesign item text, not an identifier alo
 | D0 baseline | inventory, design contract, three viewport baselines | production visual baseline must be refreshed at the release gate |
 | D1 shell | typed URL state, four domains, command palette, real counts | complete under the local checkpoint |
 | D2 primitives | shared controls, overlays, states, keyboard and reduced-motion tests | the global label and mutation-state registries remain open P0 work |
-| D3 Knowledge | Capture handoff, draft recovery, conflict merge and candidate-only Review | complete Library URL state, virtualized list, three-pane Review and promotion decision history remain open |
+| D3 Knowledge | Capture handoff, shared leave guard/draft recovery, shareable/virtualized Library, evidence-first Inspector, queue/source/diff Review and conflict merge | current-version browser sequence passed; promotion history remains a separate canonical authorization scope |
 | D4 Product | Task, Solution, Blueprint diff/CAS and Artifact provenance | complete under the local checkpoint |
 | D5 Operations | Evidence Registry, registry-derived readiness, unified Timeline and read-only Provider Ops | separated canary/batch/gold queues and real external evidence ingestion remain open |
 
@@ -56,37 +56,53 @@ The isolated pass supports an order/load-sensitive diagnosis but does not overri
 
 | Redesign items | Existing capability and evidence | Reconciliation status |
 |---|---|---|
-| UI-067 | `factory-scene.ts`, `orthogonal-router.ts`, model/route/SVG count checks, arrow and hit-path browser checks | `inherited_core_present / D6 integration reacceptance required` |
+| UI-067 | `factory-scene.ts`, `orthogonal-router.ts`, model/route/SVG count checks, arrow and hit-path browser checks | `D6 reaccepted / all builtins aligned in Chromium and WebKit` |
 | UI-068 | live endpoints, bounded incremental reroute and exact reroute on drag completion | `inherited_core_present / performance reacceptance required` |
-| UI-069 | upstream/downstream highlighting, cancelable one-shot tracer and reduced-motion path | `inherited_core_present / Map-Factory acceptance required` |
-| UI-070 | read-only `FactoryRelationInspector` and Chinese relationship labels | `inherited_core_present / Workbench navigation acceptance required` |
-| UI-071 | 72px restrained roof, semantic titles and 2.5D material rules | `Factory present / Map presentation and shell separation incomplete` |
-| UI-073 | 4:5 preview, normalized portrait pipeline and deterministic fallback employees | `inherited_core present / complete upload-state design reacceptance required` |
-| UI-081-082 | mobile read-only process rail, 44px controls and viewport containment tests | `inherited_core present / full three-breakpoint shell acceptance incomplete` |
-| UI-086 | real 1000-node/2000-relation production fixture exists | `BLOCK: full-suite result 52.94-53.73fps below 55fps` |
+| UI-069 | upstream/downstream highlighting, cancelable one-shot tracer and reduced-motion path | `D6 reaccepted / same scene core across Map and Factory` |
+| UI-070 | read-only `FactoryRelationInspector` and Chinese relationship labels | `D6 reaccepted / mouse and keyboard paths verified` |
+| UI-071 | 72px restrained roof, semantic titles and 2.5D material rules | `D6 complete locally / 2.5D confined to Factory presentation` |
+| UI-073 | 4:5 preview, normalized portrait pipeline and deterministic fallback employees | `completed_local / deterministic asset and upload-state contract reaccepted in UI-098 preflight batch 1` |
+| UI-081-082 | mobile read-only process rail, 44px controls and viewport containment tests | `D7 complete locally / 390px readonly detail and safe-area reaccepted` |
+| UI-086 | real 1000-node/2000-relation production fixture exists | `D8 complete locally / isolated 3-of-3 and final full-suite order passed` |
 
-Items not supplied by the inherited Canvas core include the Map-first presentation, Map/Factory switch, final module boundaries, density control, route splitting, global CSS decomposition, performance telemetry, and the complete D9 acceptance suite.
+Items still not supplied by D6 include final camera/routing/selection/export module boundaries and density control. Route splitting, CSS decomposition, performance telemetry and the D9 automated acceptance suite were completed by D8-D9.
+
+Fresh D6 evidence on 2026-07-22:
+
+- complete unit/contract suite `347/347`, TypeScript and production build passed;
+- Map is the desktop default and Factory is an explicit presentation switch over one `FactorySceneCanvas`;
+- Chromium/WebKit Map and Factory baselines, all-builtin relation parity, relation Inspector and tracer paths passed;
+- Chromium PNG/full-scene SVG downloads and the four-relation standalone SVG contract passed;
+- Chromium mobile readonly process rail passed;
+- no commit, push, candidate construction or production action was performed for D6.
+
+Fresh D7 evidence on 2026-07-23:
+
+- focused responsive contracts `40/40`, complete unit/contract suite `350/350`, TypeScript and production build passed;
+- 1440/1024/390 browser acceptance confirmed the three shell ranges, and fixed a real inherited tablet grid-column defect before reacceptance;
+- 1024px reader drawer is 420px wide with 12px right/bottom clearance; 390px has no horizontal overflow and presents five 75×48px bottom navigation targets;
+- mobile module relations remain in the vertical process rail; node detail is a 390×844 readonly sheet with no visible Owner or write controls and console `0/0`; the Pixel 7 visual case passed `1/1` after the approved baseline update;
+- the global 1000/2000 performance gate remains open for D8; D7 performed no commit, push, candidate or production action.
 
 ## Release-blocking work
 
 ### P0 product and Knowledge contracts
 
-- `UI-010`, `UI-013`, `UI-014`: global labels, mutation states, and all-form draft/leave behavior.
-- `UI-022` through `UI-025`: Library URL state/virtualization and Inspector/Review restructuring.
+- `UI-010`, `UI-013` are complete; `UI-014` is complete locally through the shared dirty registry and versioned Human Gold draft.
+- `UI-022` through `UI-025`: completed locally with `366/366` unit, typecheck/build, Chromium CLI desktop/mobile evidence and fresh full Playwright `50/22/0`; exact source scope is now the next hard gate.
 - `UI-027`: per-item legacy promotion decision and history; canonical write remains a separate authorization.
 - `UI-029`: separated canary review, 19-call batch and 20-item gold queues.
 
-### D6-D8 product and engineering acceptance
+### D8 product and engineering acceptance
 
-- Map/Factory presentation contract and Canvas integration.
-- three responsive shell ranges, tablet drawer, mobile read-only details and safe-area behavior.
-- dynamic loading, CSS ownership/budgets, list virtualization and performance telemetry.
-- stable full-suite 1000/2000 performance evidence without lowering the 55fps threshold.
+- `completed_local`: dynamic loading, CSS ownership/budgets, image loading rules and local performance telemetry are implemented.
+- `completed_local`: stable full-suite 1000/2000 performance evidence passed without lowering the 55fps threshold.
+- final evidence: unit `353/353`, typecheck/build passed, Playwright `34 passed / 17 intentionally skipped / 0 failed`; no release or production action followed.
 
 ### D9-D10 release acceptance
 
-- complete browser, CRUD/CAS/restore, state snapshot, accessibility and five-task usability evidence.
-- final product design logic, Owner/Reviewer/Operator manual and module evolution map in HTML.
+- D9 completed locally: browser, CRUD/CAS/restore, state snapshot, accessibility and five-task automated usability evidence passed; real moderated users and assistive-technology sessions remain an explicit evidence limit.
+- D10/UI-097 completed locally: final product design logic, Owner/Reviewer/Operator manual and module evolution map are published as `docs/product/doccanvas-product-review-and-role-manual.html`.
 - exact clean commit, immutable image and metadata; L2 image smoke and fresh L3 production-readonly evidence.
 - quiesced fresh backup and a new exact commit/image/backup/window activation authorization.
 

@@ -82,6 +82,16 @@ export interface KnowledgeLibraryFilters {
   lifecycle: string;
 }
 
+export type KnowledgeLibrarySort = 'relevance' | 'title' | 'observed' | 'revision';
+export type KnowledgeLibraryDensity = 'compact' | 'comfortable';
+export type KnowledgeLibraryLayout = 'list' | 'grid';
+
+export interface KnowledgeLibraryViewState {
+  sort: KnowledgeLibrarySort;
+  density: KnowledgeLibraryDensity;
+  layout: KnowledgeLibraryLayout;
+}
+
 export const EMPTY_KNOWLEDGE_FILTERS: KnowledgeLibraryFilters = {
   query: '',
   domain: '',
@@ -90,3 +100,9 @@ export const EMPTY_KNOWLEDGE_FILTERS: KnowledgeLibraryFilters = {
   assetMaturity: '',
   lifecycle: '',
 };
+
+export const DEFAULT_KNOWLEDGE_LIBRARY_VIEW: Readonly<KnowledgeLibraryViewState> = Object.freeze({
+  sort: 'relevance',
+  density: 'comfortable',
+  layout: 'list',
+});

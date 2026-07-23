@@ -559,7 +559,7 @@ export function FactoryOwnerInspector({
             {portraitPreview && (
               <section className="factory-owner-assets__preview" aria-label="4比5肖像裁剪预览">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={portraitPreview.url} alt="待上传肖像的 4 比 5 裁剪预览" width={160} height={200} />
+                <img src={portraitPreview.url} alt="待上传肖像的 4 比 5 裁剪预览" width={160} height={200} decoding="async" />
                 <div>
                   <strong>4:5 裁剪预览</strong>
                   <small>{portraitPreview.file.name} · {Math.ceil(portraitPreview.file.size / 1024)}KB</small>
@@ -575,7 +575,7 @@ export function FactoryOwnerInspector({
               {assets.map(asset => (
                 <button key={asset.id} type="button" className={portraitAssetId === asset.id ? 'is-selected' : ''} onClick={() => setPortraitAssetId(asset.id)}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={asset.url} alt="数字员工肖像素材" width={80} height={100} />
+                  <img src={asset.url} alt="数字员工肖像素材" width={80} height={100} loading="lazy" decoding="async" />
                   <span>{asset.id.slice(0, 8)}</span>
                 </button>
               ))}

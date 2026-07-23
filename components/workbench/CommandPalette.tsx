@@ -21,13 +21,14 @@ interface Props {
   items: WorkbenchCommandItem[];
   onClose: () => void;
   onNavigate: (route: WorkbenchRoute) => void;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
 }
 
 function isPlainPrimaryClick(event: React.MouseEvent<HTMLAnchorElement>): boolean {
   return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }
 
-export function CommandPalette({ open, items, onClose, onNavigate }: Props) {
+export function CommandPalette({ open, items, onClose, onNavigate, returnFocusRef }: Props) {
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const deferredQuery = useDeferredValue(query.trim().toLocaleLowerCase());
@@ -78,6 +79,7 @@ export function CommandPalette({ open, items, onClose, onNavigate }: Props) {
       titleId="workbench-command-title"
       onClose={onClose}
       initialFocusRef={inputRef}
+      returnFocusRef={returnFocusRef}
       backdropClassName="workbench-command-palette__backdrop"
       className="workbench-command-palette"
       onKeyDown={handleCommandKeys}

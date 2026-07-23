@@ -8,7 +8,10 @@ const viewer = readFileSync(resolve(root, 'components/canvas/CanvasViewer.tsx'),
 const detailSheet = readFileSync(resolve(root, 'components/canvas/NodeDetailSheet.tsx'), 'utf8');
 const mobileView = readFileSync(resolve(root, 'components/canvas/MobileArchitectureView.tsx'), 'utf8');
 const page = readFileSync(resolve(root, 'app/canvas/[documentId]/page.tsx'), 'utf8');
-const css = readFileSync(resolve(root, 'app/globals.css'), 'utf8');
+const css = [
+  readFileSync(resolve(root, 'app/globals.css'), 'utf8'),
+  readFileSync(resolve(root, 'app/canvas.css'), 'utf8'),
+].join('\n');
 
 test('canvas receives the server write policy and readonly saves stay browser-local', () => {
   assert.match(page, /writePolicy=\{getWritePolicy\(\)\}/);

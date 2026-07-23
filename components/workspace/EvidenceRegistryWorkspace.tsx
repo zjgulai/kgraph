@@ -3,6 +3,7 @@ import { AlertTriangle, CalendarClock, CheckCircle2, CircleHelp, FileSearch, His
 import { StatusBadge, type StatusTone } from '@/components/ui/StatusBadge';
 import type { EvidenceFreshnessStatus, EvidenceRegistryItem, EvidenceState } from '@/lib/product/evidence-registry';
 import type { ProductOperationsProjection } from '@/lib/product/operations-projection';
+import { humanLabel } from '@/lib/presentation/human-labels';
 
 interface Props {
   projection: ProductOperationsProjection;
@@ -52,13 +53,13 @@ function EvidenceInspector({ item }: { item: EvidenceRegistryItem }) {
     <p>{item.summary}</p>
     <dl>
       <div><dt>Evidence ID</dt><dd><code>{item.evidenceId}</code></dd></div>
-      <div><dt>对象</dt><dd>{item.subject.type} · {item.subject.id}{item.subject.revision ? ` · R${item.subject.revision}` : ''}</dd></div>
+      <div><dt>对象</dt><dd>{humanLabel(item.subject.type, '治理对象')} · {item.subject.id}{item.subject.revision ? ` · R${item.subject.revision}` : ''}</dd></div>
       <div><dt>来源</dt><dd><code>{item.source.ref}</code>{item.source.locator ? <span>{item.source.locator}</span> : null}</dd></div>
-      <div><dt>有效时间</dt><dd>{item.validTime.from ?? 'unknown'}{item.validTime.until ? ` → ${item.validTime.until}` : ''}</dd></div>
-      <div><dt>系统获知</dt><dd>{item.observedAt ?? 'unknown'}</dd></div>
-      <div><dt>治理时间</dt><dd>{item.governanceAt ?? 'not applicable'}</dd></div>
+      <div><dt>有效时间</dt><dd>{item.validTime.from ?? '未知'}{item.validTime.until ? ` → ${item.validTime.until}` : ''}</dd></div>
+      <div><dt>系统获知</dt><dd>{item.observedAt ?? '未知'}</dd></div>
+      <div><dt>治理时间</dt><dd>{item.governanceAt ?? '不适用'}</dd></div>
       <div><dt>新鲜度</dt><dd>{freshnessLabel[item.freshness.status]}<span>{item.freshness.reason}</span></dd></div>
-      <div><dt>完整性</dt><dd>{item.integrity.status}{item.integrity.hash ? <code>{item.integrity.hash}</code> : null}</dd></div>
+      <div><dt>完整性</dt><dd>{humanLabel(item.integrity.status)}{item.integrity.hash ? <code>{item.integrity.hash}</code> : null}</dd></div>
     </dl>
     {item.source.uri?.startsWith('http://') || item.source.uri?.startsWith('https://') ? <a href={item.source.uri} target="_blank" rel="noreferrer">打开来源<span className="sr-only">（新标签页）</span></a> : null}
     {item.nextAction ? <footer><AlertTriangle aria-hidden="true" /><p><strong>下一动作</strong>{item.nextAction}</p></footer> : null}

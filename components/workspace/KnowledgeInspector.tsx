@@ -14,6 +14,7 @@ import {
 import type { KnowledgeLibraryItem } from '@/lib/knowledge/library-types';
 import type { CaptureSummary } from '@/lib/server/knowledge-capture-store';
 import { formatDisplayDateTime, formatDisplayInteger } from '@/lib/shared/display-format';
+import { humanLabel } from '@/lib/presentation/human-labels';
 
 interface Props {
   item: KnowledgeLibraryItem | null;
@@ -69,6 +70,8 @@ export function KnowledgeInspector({ item, capture, reviewHref, canvasHref, onOp
   }
 
   const sourceUrl = safeExternalUrl(item.source.uri);
+  const unresolvedReasons = item.reviewReasons.map(reason => reviewReasonLabels[reason] ?? reason);
+  const validTimeKnown = Boolean(item.validTime.from);
 
   return (
     <aside className="knowledge-inspector" aria-label="知识对象详情">
@@ -78,10 +81,27 @@ export function KnowledgeInspector({ item, capture, reviewHref, canvasHref, onOp
         <p>{item.summary}</p>
       </header>
 
-      <div className="knowledge-inspector__identity">
-        <Fingerprint aria-hidden="true" />
-        <div><small>稳定对象 ID</small><code>{item.objectId}</code></div>
-      </div>
+      <section className="knowledge-inspector__decision" aria-label="可信度、边界与下一动作">
+        <article>
+          <span>01</span>
+          <div><small>可信度</small><strong>{governanceLabels[item.evidenceGrade] ?? humanLabel(item.evidenceGrade)}</strong><p>{humanLabel(item.source.authorityOrigin)} · {formatDisplayDateTime(item.observedAt)}</p></div>
+        </article>
+        <article data-blocked={unresolvedReasons.length > 0}>
+          <span>02</span>
+          <div><small>边界与阻断</small><strong>{unresolvedReasons.length > 0 ? `${unresolvedReasons.length} 项待复核` : '当前无已知阻断'}</strong><p>{validTimeKnown ? `${timeLabel(item.validTime.from)} 起有效` : '现实有效起点未知'} · {item.scope}</p></div>
+        </article>
+        <article>
+          <span>03</span>
+          <div>
+            <small>下一允许动作</small>
+            <strong>{unresolvedReasons.length > 0 ? '人工复核候选' : '检查关系投影'}</strong>
+            <nav aria-label="知识对象下一动作">
+              {reviewHref ? <a href={reviewHref} onClick={event => followInternalLink(event, onOpenReview)}>进入 Review<GitPullRequestArrow aria-hidden="true" /></a> : null}
+              {canvasHref ? <a href={canvasHref} onClick={event => followInternalLink(event, onOpenCanvas)}>在 Canvas 定位<Network aria-hidden="true" /></a> : null}
+            </nav>
+          </div>
+        </article>
+      </section>
 
       <section className="knowledge-inspector__handoff">
         <h3><Route aria-hidden="true" />来源到知识资产</h3>
@@ -91,10 +111,6 @@ export function KnowledgeInspector({ item, capture, reviewHref, canvasHref, onOp
           <li><span>03</span><div><strong>Human Review</strong><small>{governanceLabels[item.promotionState] ?? item.promotionState}</small></div></li>
           <li><span>04</span><div><strong>Canvas projection</strong><small>只读关系投影</small></div></li>
         </ol>
-        <div>
-          {reviewHref ? <a href={reviewHref} onClick={event => followInternalLink(event, onOpenReview)}>进入 Review<GitPullRequestArrow aria-hidden="true" /></a> : null}
-          {canvasHref ? <a href={canvasHref} onClick={event => followInternalLink(event, onOpenCanvas)}>在 Canvas 定位<Network aria-hidden="true" /></a> : null}
-        </div>
       </section>
 
       <section className="knowledge-inspector__section">
@@ -121,25 +137,32 @@ export function KnowledgeInspector({ item, capture, reviewHref, canvasHref, onOp
         ) : <p className="knowledge-inspector__source-text">{item.source.uri}</p>}
       </section>
 
-      <section className="knowledge-inspector__section">
-        <h3><GitPullRequestArrow aria-hidden="true" />推荐语境</h3>
-        <p>{item.legacy.recommendationContext || '旧条目未提供推荐语境。'}</p>
-        <dl className="knowledge-inspector__facts is-compact">
-          <div><dt>Rank</dt><dd>{item.legacy.recommendationRank}</dd></div>
-          <div><dt>Version</dt><dd>{item.legacy.version ?? '未声明'}</dd></div>
-          <div><dt>Stars</dt><dd>{item.legacy.stars === null ? '未声明' : formatDisplayInteger(item.legacy.stars)}</dd></div>
-          <div><dt>Pricing</dt><dd>{item.legacy.pricingModel ?? '未声明'}</dd></div>
-        </dl>
-      </section>
-
       <section className="knowledge-inspector__review">
         <h3><CircleAlert aria-hidden="true" />人工复核原因</h3>
         <ul>
-          {item.reviewReasons.map(reason => (
-            <li key={reason}>{reviewReasonLabels[reason] ?? reason}</li>
+          {unresolvedReasons.map(reason => (
+            <li key={reason}>{reason}</li>
           ))}
         </ul>
       </section>
+
+      <details className="knowledge-inspector__technical">
+        <summary>技术元数据</summary>
+        <div className="knowledge-inspector__identity">
+          <Fingerprint aria-hidden="true" />
+          <div><small>稳定对象 ID</small><code>{item.objectId}</code></div>
+        </div>
+        <section>
+          <h3><GitPullRequestArrow aria-hidden="true" />推荐语境</h3>
+          <p>{item.legacy.recommendationContext || '旧条目未提供推荐语境。'}</p>
+          <dl className="knowledge-inspector__facts is-compact">
+            <div><dt>Rank</dt><dd>{item.legacy.recommendationRank}</dd></div>
+            <div><dt>Version</dt><dd>{item.legacy.version ?? '未声明'}</dd></div>
+            <div><dt>Stars</dt><dd>{item.legacy.stars === null ? '未声明' : formatDisplayInteger(item.legacy.stars)}</dd></div>
+            <div><dt>Pricing</dt><dd>{item.legacy.pricingModel ?? '未声明'}</dd></div>
+          </dl>
+        </section>
+      </details>
     </aside>
   );
 }

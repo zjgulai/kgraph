@@ -27,12 +27,14 @@ export function OwnerSessionControl({ writePolicy, onAuthenticatedChange }: Prop
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [checkingStatus, setCheckingStatus] = useState(writePolicy.mode === 'owner');
   const dialogRef = useRef<HTMLDialogElement>(null);
   const tokenRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (writePolicy.mode !== 'owner') {
+      setCheckingStatus(false);
       onAuthenticatedChange(writePolicy.mode === 'dev');
       return;
     }
@@ -45,11 +47,13 @@ export function OwnerSessionControl({ writePolicy, onAuthenticatedChange }: Prop
       .then(next => {
         if (cancelled) return;
         setStatus(next);
+        setCheckingStatus(false);
         onAuthenticatedChange(next.authenticated);
       })
       .catch(() => {
         if (cancelled) return;
         setStatus(previous => ({ ...previous, authenticated: false, configured: false }));
+        setCheckingStatus(false);
         onAuthenticatedChange(false);
       });
     return () => { cancelled = true; };
@@ -68,6 +72,9 @@ export function OwnerSessionControl({ writePolicy, onAuthenticatedChange }: Prop
   if (writePolicy.mode === 'readonly') return null;
   if (writePolicy.mode === 'dev') {
     return <span className="owner-session-badge"><LockKeyhole aria-hidden="true" />开发编辑</span>;
+  }
+  if (checkingStatus) {
+    return <span className="owner-session-badge" role="status"><LockKeyhole aria-hidden="true" />检查 Owner 会话…</span>;
   }
 
   const closeDialog = () => {

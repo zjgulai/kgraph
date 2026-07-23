@@ -1,9 +1,9 @@
 ---
 title: DocCanvas Governed Workbench UI Inventory and D0 Baseline
-status: d5-evidence-registry-core-complete-global-performance-gate-open
-updated: 2026-07-22
+status: local-acceptance-complete-source-checkpoint-preparation
+updated: 2026-07-23
 scope: current local source and local browser behavior
-evidence_level: local-static-audit-plus-cross-browser-knowledge-product-evidence-verticals-and-visual-baseline
+evidence_level: local-l2-through-ui022-025
 production: unchanged
 ---
 
@@ -19,6 +19,8 @@ production: unchanged
 - 哪些交互只是视觉假象或缺少完整状态；
 - 哪些状态和数量没有可靠数据来源；
 - 哪些验收需要从当前失败转为通过。
+
+2026-07-23 对账：D6 Map/Factory、D7 响应式移动只读、D8 性能与代码治理、D9 自动化验收、D10/UI-097 文档均已在本地完成；真实主持式用户和辅助技术人工测试仍是限制。UI-014、UI-022–025、UI-072/073 已在当前本地工作树关闭或重验；完整 Playwright 顺序取得 `50 passed / 22 intentionally skipped / 0 failed`。裁决见 `docs/engineering/ui098-preflight-reconciliation.md` 与 `docs/engineering/ui098-knowledge-workflow-implementation.md`。本 inventory 仍保留 D0 表格作为迁移基线，不应把其中“Current behavior”误读为当前实现。
 
 ## 1. Current Shell
 
@@ -275,13 +277,13 @@ Completed in D5 Evidence core vertical:
 - [x] Workflow、Work Queue 与 Evolution readiness 只消费 Registry claim；stale 自动降级，`not_measured` 不显示为通过。
 - [x] Evidence 与 Provider Ops 加入 Operations 导航和 URL；Provider 页面固定只读、`canExecute=false`。
 - [x] Timeline 合并 valid/observed/governance 事件并反向导航 Evidence。
-- [ ] 全套 Playwright 的 1000/2000 Canvas benchmark 在套件负载下仍低于 55fps；隔离复跑通过，完整性能门保持开放。
+- [x] 全套 Playwright 的 1000/2000 Canvas benchmark 在最终顺序套件中通过，阈值保持 55fps 未下调。
 
 ## 13. Evidence Boundary
 
-This baseline plus D1-D5 evidence supports `D5 Evidence Registry core complete locally with a global Canvas performance gate open`. It does not support:
+This inventory plus D1-D10 and UI-022–025 evidence supports `local L2 Knowledge workflow and full browser acceptance verified; source-checkpoint preparation only`. It does not support:
 
-- D6-D10 vertical slices or the full redesigned UI accepted;
+- a frozen, authorized source checkpoint or a release candidate ready;
 - full source field diff, per-item legacy promotion decisions or promotion history;
 - candidate image ready;
 - production UI changed;

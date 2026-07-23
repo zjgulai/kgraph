@@ -27,7 +27,7 @@ test('Product Task to Blueprint diff to Artifact lineage is deep-linkable and go
     await expect(page.getByLabel('Blueprint revision diff')).toContainText('受影响 Artifact：1');
   } else {
     await expect(page.getByText('移动端只读 Blueprint')).toBeVisible();
-    await expect(page.getByRole('button', { name: '生成编译预览' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '生成编译预览', exact: true })).toHaveCount(0);
   }
 
   await page.goto(`/?view=artifacts&task=${taskId}&blueprint=${blueprintId}&artifact=r000001-20260722T060500Z&tab=evaluation`);
@@ -41,4 +41,22 @@ test('Product Task to Blueprint diff to Artifact lineage is deep-linkable and go
   await expect(page).toHaveURL(/artifact=r000001-20260722T060500Z.*tab=evaluation/u);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(errors).toEqual([]);
+});
+
+test('dirty Product Task draft blocks workbench navigation and remains recoverable', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'chromium-mobile', 'mobile Product workspace is readonly');
+  await page.goto(`/?view=solutions&task=${taskId}&blueprint=${blueprintId}`);
+  const productName = page.getByRole('textbox', { name: '产品名' });
+  await productName.fill('SupportGPT 未保存草稿');
+
+  page.once('dialog', dialog => {
+    expect(dialog.message()).toContain('未保存草稿');
+    void dialog.dismiss();
+  });
+  await page.getByRole('link', { name: /工作队列/u }).first().click();
+  await expect(page).toHaveURL(/view=solutions/u);
+  await expect(productName).toHaveValue('SupportGPT 未保存草稿');
+
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: '产品名' })).toHaveValue('SupportGPT 未保存草稿');
 });

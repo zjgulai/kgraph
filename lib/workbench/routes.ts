@@ -1,6 +1,8 @@
 import {
+  DEFAULT_KNOWLEDGE_LIBRARY_VIEW,
   EMPTY_KNOWLEDGE_FILTERS,
   type KnowledgeLibraryFilters,
+  type KnowledgeLibraryViewState,
 } from '../knowledge/library-types';
 
 export type WorkbenchArea = 'knowledge' | 'product' | 'operations' | 'sources';
@@ -33,6 +35,7 @@ export interface WorkbenchRoute {
   revision: number | null;
   tab: string | null;
   filters: KnowledgeLibraryFilters;
+  libraryView: KnowledgeLibraryViewState;
 }
 
 interface SearchParamsReader {
@@ -74,6 +77,7 @@ export const DEFAULT_WORKBENCH_ROUTE: Readonly<WorkbenchRoute> = Object.freeze({
   revision: null,
   tab: null,
   filters: Object.freeze({ ...EMPTY_KNOWLEDGE_FILTERS }),
+  libraryView: Object.freeze({ ...DEFAULT_KNOWLEDGE_LIBRARY_VIEW }),
 });
 
 function cleanParam(value: string | null, maxLength = 256): string | null {
@@ -89,6 +93,17 @@ function parseRevision(value: string | null): number | null {
 
 function parseView(value: string | null): WorkbenchView | null {
   return value && WORKBENCH_VIEWS.has(value as WorkbenchView) ? value as WorkbenchView : null;
+}
+
+function parseLibraryView(searchParams: SearchParamsReader): KnowledgeLibraryViewState {
+  const sort = searchParams.get('sort');
+  const density = searchParams.get('density');
+  const layout = searchParams.get('layout');
+  return {
+    sort: sort === 'title' || sort === 'observed' || sort === 'revision' ? sort : 'relevance',
+    density: density === 'compact' ? 'compact' : 'comfortable',
+    layout: layout === 'grid' ? 'grid' : 'list',
+  };
 }
 
 export function parseWorkbenchRoute(searchParams: SearchParamsReader): WorkbenchRoute {
@@ -114,6 +129,7 @@ export function parseWorkbenchRoute(searchParams: SearchParamsReader): Workbench
       ? parseRevision(searchParams.get('revision'))
       : null,
     tab: cleanParam(searchParams.get('tab'), 64),
+    libraryView: knowledgeView ? parseLibraryView(searchParams) : { ...DEFAULT_KNOWLEDGE_LIBRARY_VIEW },
     filters: knowledgeView ? {
       query: cleanParam(searchParams.get('q')) ?? '',
       domain: cleanParam(searchParams.get('domain')) ?? '',
@@ -147,6 +163,11 @@ export function workbenchHref(route: WorkbenchRoute): string {
   appendIfPresent(params, 'evidence', route.filters.evidenceGrade);
   appendIfPresent(params, 'maturity', route.filters.assetMaturity);
   appendIfPresent(params, 'lifecycle', route.filters.lifecycle);
+  if (route.view === 'knowledge') {
+    params.set('sort', route.libraryView.sort);
+    params.set('density', route.libraryView.density);
+    params.set('layout', route.libraryView.layout);
+  }
   return `/?${params.toString()}`;
 }
 
@@ -166,6 +187,7 @@ export function withWorkbenchView(route: WorkbenchRoute, view: WorkbenchView): W
     revision: keepKnowledgeState || keepProductState ? route.revision : null,
     tab: keepOperationsState ? route.tab : null,
     filters: keepKnowledgeState ? { ...route.filters } : { ...EMPTY_KNOWLEDGE_FILTERS },
+    libraryView: keepKnowledgeState ? { ...route.libraryView } : { ...DEFAULT_KNOWLEDGE_LIBRARY_VIEW },
   };
 }
 
@@ -185,6 +207,18 @@ export function withKnowledgeFilters(
     area: 'knowledge',
     view: 'knowledge',
     filters: { ...filters },
+  };
+}
+
+export function withKnowledgeLibraryView(
+  route: WorkbenchRoute,
+  libraryView: KnowledgeLibraryViewState,
+): WorkbenchRoute {
+  return {
+    ...route,
+    area: 'knowledge',
+    view: 'knowledge',
+    libraryView: { ...libraryView },
   };
 }
 

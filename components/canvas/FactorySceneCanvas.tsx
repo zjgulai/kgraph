@@ -11,10 +11,11 @@ import React, {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
-  type WheelEvent,
 } from 'react';
 import { Minus, Plus, Scan } from 'lucide-react';
 import type { ArchitectureLayoutEdge, ArchitectureLayoutNode, ArchitectureLayoutResult } from '@/lib/canvas/layout-engine';
+import type { CanvasPresentationMode } from './CanvasPresentationSwitch';
+import { recordClientPerformance } from '@/lib/client/performance-telemetry';
 import {
   connectedFactoryEdges,
   createFactorySpatialIndex,
@@ -38,6 +39,7 @@ export interface FactorySceneCanvasHandle {
 interface Props {
   layout: ArchitectureLayoutResult;
   viewKey: string;
+  presentationMode?: CanvasPresentationMode;
   initialViewport?: FactoryViewport;
   initialNodePositions?: FactoryNodePositions;
   selectedSceneNodeId?: string | null;
@@ -61,12 +63,14 @@ interface DragState {
   origin: { x: number; y: number };
   startClient: { x: number; y: number };
   moved: boolean;
+  startedAt: number;
 }
 
 interface PanState {
   pointerId: number;
   startClient: { x: number; y: number };
   startViewport: FactoryViewport;
+  startedAt: number;
 }
 
 const MIN_ZOOM = 0.2;
@@ -74,6 +78,7 @@ const MAX_ZOOM = 2.5;
 const NODE_RENDER_LIMIT = 350;
 const EDGE_RENDER_LIMIT = 700;
 const ROUTE_THROTTLE_MS = 50;
+const VIEWPORT_COMMIT_DELAY_MS = 80;
 const TRACE_CLEAR_DELAY_MS = 280;
 
 interface RelationSvgPresentation {
@@ -177,6 +182,7 @@ function edgeIntersectsViewport(
 export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(function FactorySceneCanvas({
   layout,
   viewKey,
+  presentationMode = 'factory',
   initialViewport,
   initialNodePositions,
   selectedSceneNodeId,
@@ -200,6 +206,7 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
   const dragRef = useRef<DragState | null>(null);
   const panRef = useRef<PanState | null>(null);
   const routeTimerRef = useRef<number | null>(null);
+  const viewportCommitTimerRef = useRef<number | null>(null);
   const cameraTimerRef = useRef<number | null>(null);
   const traceTimerRef = useRef<number | null>(null);
   const traceGenerationRef = useRef(0);
@@ -231,21 +238,43 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
     [scene.edges, scene.nodes],
   );
 
-  const applyViewport = useCallback((next: FactoryViewport, animated = false) => {
+  useEffect(() => {
+    recordClientPerformance('canvas-reroute', sceneResult.durationMs, containerRef.current ?? undefined);
+  }, [sceneResult.durationMs]);
+
+  const commitViewport = useCallback((next: FactoryViewport) => {
+    if (viewportCommitTimerRef.current !== null) window.clearTimeout(viewportCommitTimerRef.current);
+    viewportCommitTimerRef.current = null;
+    setViewportState(next);
+  }, []);
+
+  const applyViewport = useCallback((
+    next: FactoryViewport,
+    animated = false,
+    commitMode: 'immediate' | 'deferred' = 'immediate',
+  ) => {
     const normalized = {
       x: Number.isFinite(next.x) ? next.x : 0,
       y: Number.isFinite(next.y) ? next.y : 0,
       zoom: clamp(Number.isFinite(next.zoom) ? next.zoom : 1, MIN_ZOOM, MAX_ZOOM),
     };
     viewportRef.current = normalized;
-    setViewportState(normalized);
+    if (sceneRef.current) {
+      sceneRef.current.style.transform = `translate3d(${normalized.x}px, ${normalized.y}px, 0) scale(${normalized.zoom})`;
+    }
+    if (commitMode === 'deferred') {
+      if (viewportCommitTimerRef.current !== null) window.clearTimeout(viewportCommitTimerRef.current);
+      viewportCommitTimerRef.current = window.setTimeout(() => commitViewport(viewportRef.current), VIEWPORT_COMMIT_DELAY_MS);
+    } else {
+      commitViewport(normalized);
+    }
     onViewportChange?.(normalized);
     if (cameraTimerRef.current !== null) window.clearTimeout(cameraTimerRef.current);
     setCameraAnimating(animated && !reducedMotion);
     if (animated && !reducedMotion) {
       cameraTimerRef.current = window.setTimeout(() => setCameraAnimating(false), 240);
     }
-  }, [onViewportChange, reducedMotion]);
+  }, [commitViewport, onViewportChange, reducedMotion]);
 
   const fit = useCallback((animated = true) => {
     const container = containerRef.current;
@@ -326,6 +355,7 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
 
   useEffect(() => () => {
     if (routeTimerRef.current !== null) window.clearTimeout(routeTimerRef.current);
+    if (viewportCommitTimerRef.current !== null) window.clearTimeout(viewportCommitTimerRef.current);
     if (cameraTimerRef.current !== null) window.clearTimeout(cameraTimerRef.current);
     if (traceTimerRef.current !== null) window.clearTimeout(traceTimerRef.current);
   }, []);
@@ -440,6 +470,7 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
       origin: { ...node.absolutePosition },
       startClient: { x: event.clientX, y: event.clientY },
       moved: false,
+      startedAt: performance.now(),
     };
   }, []);
 
@@ -465,6 +496,7 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
       .filter(edge => edge.source === node.id || edge.target === node.id)
       .map(edge => edge.id);
     triggerTrace(edgeIds);
+    recordClientPerformance('canvas-drag', performance.now() - drag.startedAt, containerRef.current ?? undefined);
     if (!drag.moved) onNodeActivate?.(node);
   }, [onNodeActivate, onNodePositionsChange, scene.edges, triggerTrace]);
 
@@ -475,6 +507,7 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
       pointerId: event.pointerId,
       startClient: { x: event.clientX, y: event.clientY },
       startViewport: viewportRef.current,
+      startedAt: performance.now(),
     };
   }, []);
 
@@ -485,14 +518,19 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
       ...pan.startViewport,
       x: pan.startViewport.x + event.clientX - pan.startClient.x,
       y: pan.startViewport.y + event.clientY - pan.startClient.y,
-    });
+    }, false, 'deferred');
   }, [applyViewport]);
 
   const finishPan = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (panRef.current?.pointerId === event.pointerId) panRef.current = null;
-  }, []);
+    if (panRef.current?.pointerId !== event.pointerId) return;
+    const startedAt = panRef.current.startedAt;
+    panRef.current = null;
+    commitViewport(viewportRef.current);
+    recordClientPerformance('canvas-pan', performance.now() - startedAt, containerRef.current ?? undefined);
+  }, [commitViewport]);
 
-  const handleWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
+  const handleWheel = useCallback((event: globalThis.WheelEvent) => {
+    const startedAt = performance.now();
     event.preventDefault();
     const container = containerRef.current;
     if (!container) return;
@@ -508,8 +546,16 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
       x: localX - sceneX * zoom,
       y: localY - sceneY * zoom,
       zoom,
-    });
+    }, false, 'deferred');
+    recordClientPerformance('canvas-zoom', performance.now() - startedAt, container);
   }, [applyViewport]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
 
   const handleKeyboard = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === '0') {
@@ -575,6 +621,7 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
       data-layout-edges={layout.edges.length}
       data-scene-nodes={scene.nodes.length}
       data-scene-edges={scene.edges.length}
+      data-presentation={presentationMode}
       data-render-mode={renderAll ? 'full-export' : 'virtualized'}
       data-scene-materialize-ms={sceneResult.durationMs.toFixed(3)}
       data-rendered-nodes={visibleNodes.length}
@@ -586,7 +633,6 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
       onPointerMove={handlePanMove}
       onPointerUp={finishPan}
       onPointerCancel={finishPan}
-      onWheel={handleWheel}
       onKeyDown={handleKeyboard}
     >
       <div className="factory-scene-canvas__grid" aria-hidden="true" />
@@ -765,7 +811,7 @@ export const FactorySceneCanvas = forwardRef<FactorySceneCanvasHandle, Props>(fu
                   width: node.width,
                   height: node.height,
                   transform: `translate3d(${node.absolutePosition.x}px, ${node.absolutePosition.y}px, 0)`,
-                  zIndex: node.kind === 'floor' || node.kind === 'group' ? 0 : node.kind === 'lane' ? 1 : node.kind === 'room' || node.kind === 'content' ? 3 : 2,
+                  zIndex: selected ? 7 : node.kind === 'floor' || node.kind === 'group' ? 0 : node.kind === 'lane' ? 1 : node.kind === 'room' || node.kind === 'content' ? 3 : 2,
                 }}
                 tabIndex={keyboardReachable ? 0 : undefined}
                 aria-label={keyboardReachable ? getNodeLabel?.(node) ?? '画布节点' : undefined}

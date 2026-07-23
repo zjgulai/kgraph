@@ -16,6 +16,7 @@ interface Props {
   writePolicy: WritePolicy;
   chains: ProductChainProjection[];
   initialTaskId?: string | null;
+  onDirtyChange?: (dirty: boolean) => void;
   onTaskSelected: (taskId: string, blueprintId: string) => void;
   onBlueprintSaved: (blueprintId: string, taskId: string) => void;
 }
@@ -63,7 +64,7 @@ const initialInput: Omit<SolutionScaffoldInput, 'evidenceIds'> = {
   },
 };
 
-export function SolutionStudioWorkspace({ library, writePolicy, chains, initialTaskId, onTaskSelected, onBlueprintSaved }: Props) {
+export function SolutionStudioWorkspace({ library, writePolicy, chains, initialTaskId, onDirtyChange, onTaskSelected, onBlueprintSaved }: Props) {
   const [draft, setDraft] = useState(initialInput);
   const [evidenceIds, setEvidenceIds] = useState<string[]>(() => library.items.slice(0, 3).map(item => item.objectId));
   const [blueprint, setBlueprint] = useState<ProductBlueprint | null>(null);
@@ -109,6 +110,8 @@ export function SolutionStudioWorkspace({ library, writePolicy, chains, initialT
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [touched]);
+
+  useEffect(() => { onDirtyChange?.(touched); }, [onDirtyChange, touched]);
 
   const scaffold = async () => {
     if (mobile || busy) return;

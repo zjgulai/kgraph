@@ -78,6 +78,14 @@ export function CaptureWorkspace({ captures: initialCaptures, writePolicy, onCan
     ));
   }, [captures, contentHash, sourceKind, sourceUri]);
   const sourcePreview = sourceKind === 'url' ? content : file?.content ?? '';
+  const persistDraft = useCallback(() => {
+    try {
+      if (dirty) window.localStorage.setItem(CAPTURE_DRAFT_STORAGE_KEY, serializeCaptureDraft(draft));
+      else window.localStorage.removeItem(CAPTURE_DRAFT_STORAGE_KEY);
+    } catch {
+      setStatus('草稿超过浏览器本地存储容量；请缩短正文后再继续。');
+    }
+  }, [draft, dirty]);
 
   useEffect(() => {
     const restored = parseCaptureDraft(window.localStorage.getItem(CAPTURE_DRAFT_STORAGE_KEY));
@@ -95,25 +103,21 @@ export function CaptureWorkspace({ captures: initialCaptures, writePolicy, onCan
 
   useEffect(() => {
     if (!hydrated) return;
-    const timer = window.setTimeout(() => {
-      try {
-        if (dirty) window.localStorage.setItem(CAPTURE_DRAFT_STORAGE_KEY, serializeCaptureDraft(draft));
-        else window.localStorage.removeItem(CAPTURE_DRAFT_STORAGE_KEY);
-      } catch {
-        setStatus('草稿超过浏览器本地存储容量；请缩短正文后再继续。');
-      }
-    }, 250);
+    const timer = window.setTimeout(persistDraft, 250);
     return () => window.clearTimeout(timer);
-  }, [draft, dirty, hydrated]);
+  }, [hydrated, persistDraft]);
 
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
   useEffect(() => {
     if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    const warn = (event: BeforeUnloadEvent) => {
+      persistDraft();
+      event.preventDefault();
+    };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+  }, [dirty, persistDraft]);
 
   useEffect(() => {
     let cancelled = false;

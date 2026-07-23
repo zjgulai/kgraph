@@ -47,9 +47,14 @@ test('workbench route canonicalizes the area and round-trips shareable knowledge
     assetMaturity: 'structured',
     lifecycle: 'active',
   });
+  assert.deepEqual(route.libraryView, {
+    sort: 'relevance',
+    density: 'comfortable',
+    layout: 'list',
+  });
   assert.equal(
     workbenchHref(route),
-    '/?area=knowledge&view=knowledge&object=knowledge.mcp_servers.context7&revision=7&q=context&domain=ai-product.tooling.mcp&form=fact&evidence=human_reviewed&maturity=structured&lifecycle=active',
+    '/?area=knowledge&view=knowledge&object=knowledge.mcp_servers.context7&revision=7&q=context&domain=ai-product.tooling.mcp&form=fact&evidence=human_reviewed&maturity=structured&lifecycle=active&sort=relevance&density=comfortable&layout=list',
   );
 });
 

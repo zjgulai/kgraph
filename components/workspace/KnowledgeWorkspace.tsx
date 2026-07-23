@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import type { WritePolicy } from '@/lib/server/write-guard';
 import type { DocumentEntry } from '@/lib/shared/document-registry';
 import type { KnowledgeLibraryProjection } from '@/lib/knowledge/library-types';
 import { filterKnowledgeItems } from '@/lib/knowledge/library-filter';
+import { sortKnowledgeItems } from '@/lib/knowledge/library-view';
 import {
   DEFAULT_WORKBENCH_ROUTE,
   parseWorkbenchRoute,
@@ -16,19 +18,23 @@ import {
   withBlueprint,
   withEvidenceRecord,
   withKnowledgeFilters,
+  withKnowledgeLibraryView,
   withKnowledgeObject,
   withWorkbenchView,
   workbenchHref,
   type WorkbenchRoute,
+  type WorkbenchView,
 } from '@/lib/workbench/routes';
+import {
+  shouldBlockWorkbenchNavigation,
+  type WorkbenchDirtyRegistry,
+} from '@/lib/workbench/draft-navigation';
 import { WorkspaceDashboard } from '@/components/canvas/WorkspaceDashboard';
 import { WorkbenchShell, type WorkbenchCountMap } from '@/components/workbench/WorkbenchShell';
 import type { WorkbenchCommandItem } from '@/components/workbench/CommandPalette';
 import { WorkQueue } from '@/components/workbench/WorkQueue';
 import { KnowledgeInspector } from './KnowledgeInspector';
 import { KnowledgeLibrary } from './KnowledgeLibrary';
-import { KnowledgeReviewWorkspace } from './KnowledgeReviewWorkspace';
-import { KnowledgeCanvasWorkspace } from './KnowledgeCanvasWorkspace';
 import { SolutionStudioWorkspace } from './SolutionStudioWorkspace';
 import { BlueprintWorkspace } from './BlueprintWorkspace';
 import { ArtifactWorkspace } from './ArtifactWorkspace';
@@ -36,7 +42,6 @@ import { WorkflowWorkspace } from './WorkflowWorkspace';
 import { TimelineWorkspace } from './TimelineWorkspace';
 import { EvolutionCockpit } from './EvolutionCockpit';
 import { EvidenceRegistryWorkspace } from './EvidenceRegistryWorkspace';
-import { ProviderOperationsWorkspace } from './ProviderOperationsWorkspace';
 import type { ProductOperationsProjection } from '@/lib/product/operations-projection';
 import { CaptureWorkspace } from './CaptureWorkspace';
 import type { CaptureSummary } from '@/lib/server/knowledge-capture-store';
@@ -44,6 +49,26 @@ import { EnrichmentWorkspace } from './EnrichmentWorkspace';
 import type { EnrichmentSummary } from '@/lib/server/knowledge-enrichment-store';
 import type { EnrichmentEvaluationReport, GoldAnnotationSummary } from '@/lib/server/knowledge-enrichment-eval';
 import type { PilotReadinessReport } from '@/lib/server/knowledge-enrichment-pilot';
+import { recordClientPerformance, startClientPerformanceObservers } from '@/lib/client/performance-telemetry';
+
+function WorkspaceSurfaceLoading({ label }: { label: string }) {
+  return <section className="workspace-surface-loading" role="status" aria-live="polite">正在加载{label}…</section>;
+}
+
+const KnowledgeReviewWorkspace = dynamic(
+  () => import('./KnowledgeReviewWorkspace').then(module => module.KnowledgeReviewWorkspace),
+  { loading: () => <WorkspaceSurfaceLoading label="Review 工作区" />, ssr: false },
+);
+
+const KnowledgeCanvasWorkspace = dynamic(
+  () => import('./KnowledgeCanvasWorkspace').then(module => module.KnowledgeCanvasWorkspace),
+  { loading: () => <WorkspaceSurfaceLoading label="Knowledge Canvas" />, ssr: false },
+);
+
+const ProviderOperationsWorkspace = dynamic(
+  () => import('./ProviderOperationsWorkspace').then(module => module.ProviderOperationsWorkspace),
+  { loading: () => <WorkspaceSurfaceLoading label="Provider Ops" />, ssr: false },
+);
 
 interface Props {
   initialLibrary: KnowledgeLibraryProjection;
@@ -70,7 +95,11 @@ interface Props {
 }
 
 function cloneDefaultRoute(): WorkbenchRoute {
-  return { ...DEFAULT_WORKBENCH_ROUTE, filters: { ...DEFAULT_WORKBENCH_ROUTE.filters } };
+  return {
+    ...DEFAULT_WORKBENCH_ROUTE,
+    filters: { ...DEFAULT_WORKBENCH_ROUTE.filters },
+    libraryView: { ...DEFAULT_WORKBENCH_ROUTE.libraryView },
+  };
 }
 
 export function KnowledgeWorkspace({
@@ -117,18 +146,18 @@ export function KnowledgeWorkspace({
   const [library, setLibrary] = useState(initialLibrary);
   const [captures, setCaptures] = useState(initialCaptures);
   const [operations, setOperations] = useState(initialOperations);
-  const captureDirtyRef = useRef(false);
-  const reviewDirtyRef = useRef(false);
+  const dirtyRegistryRef = useRef<WorkbenchDirtyRegistry>({});
+  const pendingNavigationMetricRef = useRef<{ metric: 'surface-switch' | 'inspector-open'; startedAt: number } | null>(null);
   const deferredQuery = useDeferredValue(route.filters.query);
   const deferredFilters = useMemo(
     () => ({ ...route.filters, query: deferredQuery }),
     [deferredQuery, route.filters],
   );
   const filteredItems = useMemo(
-    () => filterKnowledgeItems(library.items, deferredFilters),
-    [deferredFilters, library.items],
+    () => sortKnowledgeItems(filterKnowledgeItems(library.items, deferredFilters), route.libraryView.sort),
+    [deferredFilters, library.items, route.libraryView.sort],
   );
-  const selectedItem = (route.objectId ? library.items.find(item => item.objectId === route.objectId) : null)
+  const selectedItem = (route.objectId ? filteredItems.find(item => item.objectId === route.objectId) : null)
     ?? filteredItems[0]
     ?? null;
   const selectedCapture = (route.captureId ? captures.find(capture => capture.captureId === route.captureId) : null)
@@ -138,21 +167,46 @@ export function KnowledgeWorkspace({
     item.taskId === route.taskId || item.blueprintId === route.blueprintId
   )) ?? null;
 
+  const setWorkbenchDirty = useCallback((view: WorkbenchView, dirty: boolean) => {
+    dirtyRegistryRef.current = { ...dirtyRegistryRef.current, [view]: dirty };
+  }, []);
+
   const navigate = useCallback((next: WorkbenchRoute, mode: 'push' | 'replace' = 'push', skipDraftGuard = false) => {
-    if (!skipDraftGuard && next.view !== route.view) {
-      const dirty = route.view === 'capture' ? captureDirtyRef.current : route.view === 'review' ? reviewDirtyRef.current : false;
-      if (dirty && !window.confirm('当前工作区有未保存草稿，已保存在本地。仍要离开？')) return;
+    if (shouldBlockWorkbenchNavigation(route.view, next.view, dirtyRegistryRef.current, skipDraftGuard)
+      && !window.confirm('当前工作区有未保存草稿，已保存在本地。仍要离开？')) return;
+    if (next.view !== route.view || next.objectId !== route.objectId) {
+      pendingNavigationMetricRef.current = {
+        metric: next.view !== route.view ? 'surface-switch' : 'inspector-open',
+        startedAt: performance.now(),
+      };
     }
     setRoute(next);
     if (typeof window === 'undefined') return;
     window.history[mode === 'replace' ? 'replaceState' : 'pushState'](null, '', workbenchHref(next));
-  }, [route.view]);
+  }, [route.objectId, route.view]);
+
+  useEffect(() => startClientPerformanceObservers(), []);
+
+  useEffect(() => {
+    if (route.view !== 'knowledge' || !selectedItem || route.objectId === selectedItem.objectId) return;
+    navigate(withKnowledgeObject(route, selectedItem.objectId), 'replace');
+  }, [navigate, route, selectedItem]);
+
+  useEffect(() => {
+    const pending = pendingNavigationMetricRef.current;
+    if (!pending) return;
+    const frame = window.requestAnimationFrame(() => {
+      recordClientPerformance(pending.metric, performance.now() - pending.startedAt);
+      if (pendingNavigationMetricRef.current === pending) pendingNavigationMetricRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [route.objectId, route.view]);
 
   useEffect(() => {
     const restoreRoute = () => {
       const next = parseWorkbenchRoute(new URLSearchParams(window.location.search));
-      const dirty = route.view === 'capture' ? captureDirtyRef.current : route.view === 'review' ? reviewDirtyRef.current : false;
-      if (next.view !== route.view && dirty && !window.confirm('当前工作区有未保存草稿，已保存在本地。仍要离开？')) {
+      if (shouldBlockWorkbenchNavigation(route.view, next.view, dirtyRegistryRef.current)
+        && !window.confirm('当前工作区有未保存草稿，已保存在本地。仍要离开？')) {
         window.history.pushState(null, '', workbenchHref(route));
         return;
       }
@@ -224,9 +278,11 @@ export function KnowledgeWorkspace({
               allItems={library.items}
               items={filteredItems}
               filters={route.filters}
+              viewState={route.libraryView}
               selectedId={selectedItem?.objectId ?? null}
               hrefForObject={objectId => workbenchHref(withKnowledgeObject(route, objectId))}
               onFiltersChange={filters => navigate(withKnowledgeFilters(route, filters), 'replace')}
+              onViewStateChange={libraryView => navigate(withKnowledgeLibraryView(route, libraryView), 'replace')}
               onSelect={objectId => navigate(withKnowledgeObject(route, objectId))}
             />
             <KnowledgeInspector
@@ -247,7 +303,7 @@ export function KnowledgeWorkspace({
         <CaptureWorkspace
           captures={captures}
           writePolicy={writePolicy}
-          onDirtyChange={dirty => { captureDirtyRef.current = dirty; }}
+          onDirtyChange={dirty => setWorkbenchDirty('capture', dirty)}
           onOpenCandidate={(objectId, captureId) => navigate(toKnowledgeObject(route, objectId, captureId), 'push', true)}
           onCandidateCreated={(item, capture) => {
             setCaptures(current => [capture, ...current.filter(existing => existing.captureId !== capture.captureId)]);
@@ -279,13 +335,15 @@ export function KnowledgeWorkspace({
           evaluation={initialEnrichmentEvaluation}
           pilot={initialPilotReadiness}
           writePolicy={writePolicy}
+          onDirtyChange={dirty => setWorkbenchDirty('enrichment', dirty)}
         />
       ) : view === 'review' ? (
         <KnowledgeReviewWorkspace
           library={library}
           writePolicy={writePolicy}
           initialObjectId={route.objectId}
-          onDirtyChange={dirty => { reviewDirtyRef.current = dirty; }}
+          onDirtyChange={dirty => setWorkbenchDirty('review', dirty)}
+          onReviewObjectSelected={objectId => navigate(toReviewObject(route, objectId, route.captureId), 'replace')}
           onLibraryItemUpdated={updated => setLibrary(current => ({
             ...current,
             items: current.items.map(item => item.objectId === updated.objectId ? updated : item),
@@ -322,6 +380,7 @@ export function KnowledgeWorkspace({
           writePolicy={writePolicy}
           chains={operations.productChains}
           initialTaskId={route.taskId}
+          onDirtyChange={dirty => setWorkbenchDirty('solutions', dirty)}
           onTaskSelected={(taskId, blueprintId) => navigate(toProductTask(route, taskId, blueprintId))}
           onBlueprintSaved={(blueprintId, taskId) => navigate(withBlueprint(toProductTask(route, taskId, blueprintId), blueprintId))}
         />
@@ -331,6 +390,7 @@ export function KnowledgeWorkspace({
           initialBlueprintId={route.blueprintId}
           initialRevision={route.revision}
           chain={selectedProductChain}
+          onDirtyChange={dirty => setWorkbenchDirty('blueprints', dirty)}
           onBlueprintSelected={blueprintId => {
             const chain = operations.productChains.find(item => item.blueprintId === blueprintId);
             navigate(withBlueprint(chain ? toProductTask(route, chain.taskId, blueprintId) : route, blueprintId));

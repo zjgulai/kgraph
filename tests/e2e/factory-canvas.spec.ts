@@ -174,6 +174,36 @@ async function waitForDocumentScene(page: Page, documentId: string) {
   return canvas;
 }
 
+test('desktop Map and Factory presentations share one scene and preserve relation counts', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'chromium-mobile', 'Mobile remains a dedicated readonly process rail.');
+  await waitForScene(page);
+
+  const canvas = page.locator('.factory-scene-canvas');
+  await expect(canvas).toHaveAttribute('data-presentation', 'map');
+  const before = await canvas.evaluate(element => ({
+    layout: element.getAttribute('data-layout-edges'),
+    scene: element.getAttribute('data-scene-edges'),
+    rendered: element.getAttribute('data-rendered-edges'),
+  }));
+
+  await page.getByRole('button', { name: '工厂', exact: true }).click();
+  await expect(canvas).toHaveAttribute('data-presentation', 'factory');
+  await expect(page.locator('.factory-header')).toHaveAttribute('data-presentation', 'factory');
+  await expect(canvas).toHaveAttribute('data-layout-edges', before.layout ?? '0');
+  await expect(canvas).toHaveAttribute('data-scene-edges', before.scene ?? '0');
+  await expect(canvas).toHaveAttribute('data-rendered-edges', before.rendered ?? '0');
+  await expect.poll(() => page.locator('.digital-employee__portrait img').evaluateAll(images => (
+    images.length > 0 && images.every(image => {
+      const portrait = image as HTMLImageElement;
+      return portrait.complete && portrait.naturalWidth > 0;
+    })
+  ))).toBe(true);
+  await expect(page).toHaveScreenshot('playbook-overview-factory.png');
+
+  await page.getByRole('button', { name: '地图', exact: true }).click();
+  await expect(canvas).toHaveAttribute('data-presentation', 'map');
+});
+
 test('production standalone serves HSTS and CSP without breaking the canvas runtime', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'chromium-mobile', 'Response header acceptance runs on both desktop engines.');
   const cspViolations: string[] = [];
@@ -249,9 +279,25 @@ test('desktop scene renders every routed relation and exposes one-shot interacti
   const firstHit = hitTargets.nth(exposedHit.index);
   await expect(firstHit).toHaveAttribute('aria-label', /从“.+”到“.+”/u);
   await expect(firstHit).not.toHaveAttribute('aria-label', /node-playbook|region:/u);
+  const tracerObserved = page.evaluate(() => new Promise<boolean>(resolve => {
+    if (document.querySelector('.factory-scene-edge__tracer')) {
+      resolve(true);
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      if (!document.querySelector('.factory-scene-edge__tracer')) return;
+      observer.disconnect();
+      resolve(true);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.setTimeout(() => {
+      observer.disconnect();
+      resolve(false);
+    }, 1_000);
+  }));
   await page.mouse.move(0, 0);
   await page.mouse.move(exposedHit.x, exposedHit.y);
-  await expect(page.locator('.factory-scene-edge__tracer')).not.toHaveCount(0);
+  expect(await tracerObserved).toBe(true);
   await page.mouse.click(exposedHit.x, exposedHit.y);
   await expect(page.getByRole('dialog', { name: /生产关系/u })).toBeVisible();
   await expect(page.getByText('由 Markdown 层级与确定性关系规则自动生成')).toBeVisible();
@@ -348,6 +394,7 @@ test('viewport PNG and full-scene SVG export real production-rendered artifacts 
   const expectedSceneNodes = Number(await page.locator('.factory-scene-canvas').getAttribute('data-scene-nodes'));
   const expectedSceneEdges = Number(await page.locator('.factory-scene-canvas').getAttribute('data-scene-edges'));
 
+  await page.locator('.architecture-toolbar__more > summary').click();
   const pngDownloadPromise = page.waitForEvent('download');
   await page.getByTitle('导出当前视口 PNG').click();
   const pngDownload = await pngDownloadPromise;
