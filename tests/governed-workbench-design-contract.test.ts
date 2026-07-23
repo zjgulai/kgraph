@@ -81,7 +81,7 @@ test('workbench inventory covers every current workspace view and the governed o
     assert.ok(inventory.includes('| ' + object + ' |'), object);
   }
 
-  assert.match(inventory, /local L2 Knowledge workflow implementation verified; full browser source-checkpoint gate open/u);
+  assert.match(inventory, /local L2 Knowledge workflow and full browser acceptance verified; source-checkpoint preparation only/u);
   assert.match(inventory, /ui098-preflight-reconciliation\.md/u);
   assert.match(inventory, /Evidence Registry v1/u);
   assert.match(inventory, /UI-029/u);

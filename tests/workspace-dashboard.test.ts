@@ -52,7 +52,8 @@ test('writable dashboard keeps dev creation and hides owner controls until HttpO
   assert.match(dev, /创建并打开/);
   assert.doesNotMatch(dev, /Owner token/);
   assert.match(owner, /编辑能力尚未解锁/);
-  assert.match(owner, /Owner 解锁/);
+  assert.match(owner, /检查 Owner 会话…/);
+  assert.doesNotMatch(owner, /Owner 解锁/);
   assert.doesNotMatch(owner, /创建并打开|name="canvas-title"|sessionStorage|X-DocCanvas-Token/u);
   assert.match(source, /fetch\('\/api\/canvases'/);
   assert.match(source, /OwnerSessionControl/);

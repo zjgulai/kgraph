@@ -23,7 +23,6 @@ export function Dialog({ open, titleId, descriptionId, onClose, className, backd
   useEffect(() => {
     if (!open) return;
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const explicitReturnTarget = returnFocusRef?.current ?? null;
     const frame = window.requestAnimationFrame(() => {
       const fallback = dialogRef.current?.querySelector<HTMLElement>('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])');
       (initialFocusRef?.current ?? fallback)?.focus();
@@ -33,7 +32,7 @@ export function Dialog({ open, titleId, descriptionId, onClose, className, backd
     return () => {
       window.cancelAnimationFrame(frame);
       document.body.style.overflow = priorOverflow;
-      const returnTarget = explicitReturnTarget ?? previousFocusRef.current;
+      const returnTarget = returnFocusRef?.current ?? previousFocusRef.current;
       returnTarget?.focus({ preventScroll: true });
       window.setTimeout(() => returnTarget?.focus({ preventScroll: true }), 0);
     };

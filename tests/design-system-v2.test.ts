@@ -58,7 +58,7 @@ test('overlay and collection primitives own the required keyboard contracts', ()
   assert.match(dialog, /aria-modal="true"/u);
   assert.match(dialog, /event\.key === 'Escape'/u);
   assert.match(dialog, /event\.key !== 'Tab'/u);
-  assert.match(dialog, /explicitReturnTarget \?\? previousFocusRef\.current/u);
+  assert.match(dialog, /returnFocusRef\?\.current \?\? previousFocusRef\.current/u);
   assert.match(dialog, /setTimeout\(\(\) => returnTarget\?\.focus/u);
   assert.match(menu, /role="menu"/u);
   assert.match(menu, /ArrowDown/u);
