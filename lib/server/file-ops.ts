@@ -8,6 +8,7 @@ let recoveryClaimSequence = 0;
 interface LockMetadata {
   pid: number;
   createdAt: number;
+  token?: string;
 }
 
 interface FileIdentity {
@@ -65,6 +66,7 @@ interface PreparedLockCandidate {
   path: string;
   fd: number;
   identity: FileIdentity;
+  token: string;
 }
 
 function sleep(ms: number) {
@@ -77,7 +79,11 @@ function isLockMetadata(value: unknown): value is LockMetadata {
   return Number.isSafeInteger(metadata.pid)
     && (metadata.pid as number) > 0
     && Number.isSafeInteger(metadata.createdAt)
-    && (metadata.createdAt as number) >= 0;
+    && (metadata.createdAt as number) >= 0
+    && (
+      metadata.token === undefined
+      || (typeof metadata.token === 'string' && metadata.token.length >= 16)
+    );
 }
 
 function isProcessAlive(pid: number) {
@@ -108,8 +114,29 @@ function sameIdentity(left: FileIdentity | undefined, right: FileIdentity) {
   return left?.dev === right.dev && left.ino === right.ino;
 }
 
-function removePathIfOwned(filePath: string, identity: FileIdentity) {
-  if (!sameIdentity(identityAtPath(filePath), identity)) return false;
+function lockTokenAtPath(filePath: string): string | undefined {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, 'utf-8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+
+  try {
+    const metadata: unknown = JSON.parse(raw);
+    return isLockMetadata(metadata) ? metadata.token : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function removePathIfOwned(filePath: string, identity: FileIdentity, token?: string) {
+  const identityMatches = sameIdentity(identityAtPath(filePath), identity);
+  const tokenMatches = !identityMatches
+    && token !== undefined
+    && lockTokenAtPath(filePath) === token;
+  if (!identityMatches && !tokenMatches) return false;
   try {
     fs.rmSync(filePath);
     return true;
@@ -121,6 +148,7 @@ function removePathIfOwned(filePath: string, identity: FileIdentity) {
 
 function prepareLockCandidate(lockPath: string): PreparedLockCandidate {
   const candidatePath = `${lockPath}.acquire.${process.pid}.${randomUUID()}`;
+  const token = randomUUID();
   let fd: number | undefined;
 
   try {
@@ -128,9 +156,10 @@ function prepareLockCandidate(lockPath: string): PreparedLockCandidate {
     fs.writeFileSync(fd, JSON.stringify({
       pid: process.pid,
       createdAt: Date.now(),
+      token,
     }), 'utf-8');
     const identity = identityFromFd(fd);
-    return { path: candidatePath, fd, identity };
+    return { path: candidatePath, fd, identity, token };
   } catch (error) {
     const cleanupErrors: unknown[] = [];
     if (fd !== undefined) {
@@ -148,7 +177,7 @@ function prepareLockCandidate(lockPath: string): PreparedLockCandidate {
 function cleanupPreparedCandidate(candidate: PreparedLockCandidate) {
   const errors: unknown[] = [];
   attemptCleanup(errors, () => fs.closeSync(candidate.fd));
-  attemptCleanup(errors, () => removePathIfOwned(candidate.path, candidate.identity));
+  attemptCleanup(errors, () => removePathIfOwned(candidate.path, candidate.identity, candidate.token));
   return errors;
 }
 
@@ -430,6 +459,7 @@ export async function withFileLock<T>(
   };
   let fd: number | undefined;
   let ownedIdentity: FileIdentity | undefined;
+  let ownedToken: string | undefined;
   let publishedCandidatePath: string | undefined;
   let result: T | undefined;
   let primary: { error: unknown; message?: string } | undefined;
@@ -468,8 +498,9 @@ export async function withFileLock<T>(
 
       fd = candidate.fd;
       ownedIdentity = candidate.identity;
+      ownedToken = candidate.token;
       publishedCandidatePath = candidate.path;
-      removePathIfOwned(candidate.path, candidate.identity);
+      removePathIfOwned(candidate.path, candidate.identity, candidate.token);
       publishedCandidatePath = undefined;
     }
 
@@ -490,12 +521,22 @@ export async function withFileLock<T>(
   }
   if (ownedIdentity !== undefined) {
     attemptCleanup(cleanupErrors, () => {
-      removePathIfOwned(lockPath, ownedIdentity as FileIdentity);
+      const removed = removePathIfOwned(lockPath, ownedIdentity as FileIdentity, ownedToken);
+      if (!removed && fs.existsSync(lockPath)) {
+        throw new Error(`Could not release file lock without violating ownership: ${lockPath}`);
+      }
     });
   }
   if (publishedCandidatePath !== undefined && ownedIdentity !== undefined) {
     attemptCleanup(cleanupErrors, () => {
-      removePathIfOwned(publishedCandidatePath as string, ownedIdentity as FileIdentity);
+      const removed = removePathIfOwned(
+        publishedCandidatePath as string,
+        ownedIdentity as FileIdentity,
+        ownedToken,
+      );
+      if (!removed && fs.existsSync(publishedCandidatePath as string)) {
+        throw new Error(`Could not clean up file lock candidate: ${publishedCandidatePath}`);
+      }
     });
   }
   if (ownership.releaseRequired) {

@@ -138,7 +138,7 @@ test('D9 accessibility gate covers names, focus, reflow, reduced motion and touc
 
 test('D9 keyboard-only route reaches a knowledge object without pointer input', async ({ page }) => {
   await page.goto('/');
-  await page.keyboard.press('Control+K');
+  await page.keyboard.press('ControlOrMeta+K');
   const palette = page.getByRole('dialog', { name: '搜索对象与命令' });
   await expect(palette).toBeVisible();
   const searchbox = palette.getByRole('searchbox');

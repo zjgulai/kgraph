@@ -13,6 +13,7 @@ import {
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'path';
 import { hashKnowledgeObject, validateKnowledgeObject, type KnowledgeObject } from '../../../scripts/lib/knowledge-object-contract';
 import { compileExtractiveDraft, type CaptureRequest } from '../knowledge/extractive-draft';
+import { projectPath } from './project-root';
 
 const CAPTURE_SCHEMA = 'doccanvas-knowledge-capture-v1' as const;
 const JOURNAL_SCHEMA = 'doccanvas-knowledge-capture-journal-v1' as const;
@@ -276,7 +277,7 @@ export function captureStorePath(): string {
     if (!isAbsolute(configured)) fail('CAPTURE_STORE_PATH_INVALID', '配置路径必须是绝对路径', 500);
     return resolve(configured);
   }
-  return resolve(process.cwd(), 'data', 'captures');
+  return projectPath('data', 'captures');
 }
 
 export function readCaptureRecord(options: { storeDir?: string; captureId: string }): CaptureRecord {

@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { NextRequest } from 'next/server';
 import {
   CaptureStoreError,
+  captureStorePath,
   createCapture,
   listCaptureRecords,
   readCaptureRecord,
@@ -77,6 +78,14 @@ function urlRequest(content = '# Retrieval evaluation\n\nUse a fixed golden set 
 function captureError(code: string) {
   return (error: unknown) => error instanceof CaptureStoreError && error.code === code;
 }
+
+test('default capture store follows the governed project root', () => {
+  const dataRoot = tempRoot('doccanvas-capture-root-');
+  process.env.DOCCANVAS_ROOT = dataRoot;
+  delete process.env.DOCCANVAS_CAPTURE_STORE_PATH;
+
+  assert.equal(captureStorePath(), join(dataRoot, 'data', 'captures'));
+});
 
 test('extractive compiler and capture store create a deterministic provenance-bound candidate', () => {
   const storeDir = join(tempRoot('doccanvas-capture-'), 'captures');

@@ -613,16 +613,25 @@ test('1000-node 2000-edge worker fixture stays within interaction and virtualiza
     const target = document.querySelector<HTMLElement>('.factory-scene-canvas');
     if (!target) throw new Error('Scale canvas is unavailable for frame sampling.');
     const rect = target.getBoundingClientRect();
+    const dispatchZoom = (index: number) => target.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+      deltaY: index % 2 === 0 ? -0.75 : 0.75,
+    }));
+
+    // Warm the same interaction path before measuring so the gate covers steady-state
+    // frame delivery rather than browser startup and first-use JIT work.
+    for (let index = 0; index < 20; index += 1) {
+      dispatchZoom(index);
+      await new Promise<number>(requestAnimationFrame);
+    }
+
     const values: number[] = [];
     let previous = await new Promise<number>(requestAnimationFrame);
     for (let index = 0; index < 60; index += 1) {
-      target.dispatchEvent(new WheelEvent('wheel', {
-        bubbles: true,
-        cancelable: true,
-        clientX: rect.left + rect.width / 2,
-        clientY: rect.top + rect.height / 2,
-        deltaY: index % 2 === 0 ? -0.75 : 0.75,
-      }));
+      dispatchZoom(index);
       const current = await new Promise<number>(requestAnimationFrame);
       values.push(current - previous);
       previous = current;

@@ -51,14 +51,47 @@ test('writes pid and numeric createdAt metadata while holding a lock', async (t)
 
   await withFileLock(lockPath, () => {
     const metadata = JSON.parse(readFileSync(lockPath, 'utf-8')) as Record<string, unknown>;
-    assert.deepEqual(Object.keys(metadata).sort(), ['createdAt', 'pid']);
+    assert.deepEqual(Object.keys(metadata).sort(), ['createdAt', 'pid', 'token']);
     assert.equal(metadata.pid, process.pid);
     assert.equal(typeof metadata.createdAt, 'number');
+    assert.equal(typeof metadata.token, 'string');
+    assert.ok((metadata.token as string).length >= 16);
     assert.ok((metadata.createdAt as number) >= startedAt);
     assert.ok((metadata.createdAt as number) <= Date.now());
   });
 
   assert.equal(existsSync(lockPath), false);
+});
+
+test('releases its token-owned lock when bind-mount inode observations drift', async (t) => {
+  const lockPath = createFixture(t);
+  const originalStatSync = fs.statSync;
+  t.mock.method(fs, 'statSync', ((...args: Parameters<typeof fs.statSync>) => {
+    const stat = Reflect.apply(originalStatSync, fs, args) as fs.Stats;
+    if (String(args[0]) !== lockPath) return stat;
+    return { ...stat, dev: stat.dev, ino: stat.ino + 1 } as fs.Stats;
+  }) as typeof fs.statSync);
+
+  const result = await withFileLock(lockPath, () => 'released');
+
+  assert.equal(result, 'released');
+  assert.equal(existsSync(lockPath), false);
+});
+
+test('preserves a replacement lock with a different token and reports cleanup failure', async (t) => {
+  const lockPath = createFixture(t);
+  const replacement = JSON.stringify({
+    pid: process.pid,
+    createdAt: Date.now(),
+    token: 'replacement-owner-token',
+  });
+
+  await assert.rejects(withFileLock(lockPath, () => {
+    rmSync(lockPath);
+    writeFileSync(lockPath, replacement, 'utf-8');
+  }), /File lock cleanup failed/);
+
+  assert.equal(readFileSync(lockPath, 'utf-8'), replacement);
 });
 
 test('reclaims a lock older than 30 seconds when its valid pid is not alive', async (t) => {
